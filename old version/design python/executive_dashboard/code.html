@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CYBER_BOT_V2 - Executive Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#2d3449",
+                        "on-primary-container": "#004965",
+                        "on-background": "#dae2fd",
+                        "surface": "#0b1326",
+                        "outline-variant": "#3e484f",
+                        "on-secondary": "#003824",
+                        "surface-container": "#171f33",
+                        "tertiary-fixed-dim": "#ffb3ad",
+                        "on-tertiary": "#68000a",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary-fixed": "#002113",
+                        "outline": "#87929a",
+                        "on-secondary-fixed-variant": "#005236",
+                        "inverse-surface": "#dae2fd",
+                        "surface-dim": "#0b1326",
+                        "surface-container-highest": "#2d3449",
+                        "on-surface-variant": "#bdc8d1",
+                        "on-tertiary-fixed": "#410004",
+                        "surface-container-low": "#131b2e",
+                        "inverse-primary": "#00668a",
+                        "secondary": "#4edea3",
+                        "surface-container-lowest": "#060e20",
+                        "secondary-fixed": "#6ffbbe",
+                        "surface-container-high": "#222a3d",
+                        "tertiary-fixed": "#ffdad7",
+                        "on-tertiary-container": "#8d0012",
+                        "surface-bright": "#31394d",
+                        "secondary-container": "#00a572",
+                        "on-primary": "#00354a",
+                        "tertiary-container": "#ff938c",
+                        "surface-tint": "#7bd0ff",
+                        "on-surface": "#dae2fd",
+                        "primary-fixed-dim": "#7bd0ff",
+                        "background": "#0b1326",
+                        "secondary-fixed-dim": "#4edea3",
+                        "error-container": "#93000a",
+                        "on-primary-fixed-variant": "#004c69",
+                        "tertiary": "#ffbcb7",
+                        "on-primary-fixed": "#001e2c",
+                        "error": "#ffb4ab",
+                        "primary-container": "#38bdf8",
+                        "primary": "#8ed5ff",
+                        "primary-fixed": "#c4e7ff",
+                        "inverse-on-surface": "#283044",
+                        "on-tertiary-fixed-variant": "#930013",
+                        "on-error": "#690005",
+                        "on-secondary-container": "#00311f"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "md": "16px",
+                        "lg": "24px",
+                        "xs": "4px",
+                        "unit": "4px",
+                        "sm": "8px",
+                        "gutter": "12px",
+                        "xl": "40px",
+                        "margin": "24px"
+                    },
+                    "fontFamily": {
+                        "data-lg": ["JetBrains Mono"],
+                        "label-caps": ["Inter"],
+                        "body-md": ["Inter"],
+                        "display-xl": ["Inter"],
+                        "heading-lg": ["Inter"],
+                        "data-md": ["JetBrains Mono"],
+                        "data-sm": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "data-lg": ["18px", { "lineHeight": "1.2", "fontWeight": "500" }],
+                        "label-caps": ["11px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "display-xl": ["36px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "heading-lg": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "data-md": ["14px", { "lineHeight": "1.2", "fontWeight": "400" }],
+                        "data-sm": ["12px", { "lineHeight": "1", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md h-screen flex flex-col overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-4 h-12 z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 text-sky-400 font-mono text-[10px] tracking-tight uppercase shrink-0">
+<div class="flex items-center gap-4">
+<span class="text-lg font-black tracking-tighter text-sky-400">CYBER_BOT_V2</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1.5 opacity-80 hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[14px]">sensors</span>
+                    SYSTEM_RUNNING
+                </span>
+<span class="flex items-center gap-1.5 opacity-80 hover:opacity-100 transition-opacity text-secondary">
+<span class="material-symbols-outlined text-[14px]">memory</span>
+                    TESTNET_MODE
+                </span>
+</div>
+<div class="flex items-center gap-3 border-l border-slate-800 pl-4">
+<button class="hover:bg-slate-800/50 hover:text-sky-300 transition-colors p-1 rounded-DEFAULT"><span class="material-symbols-outlined text-[16px]">sensors</span></button>
+<button class="hover:bg-slate-800/50 hover:text-sky-300 transition-colors p-1 rounded-DEFAULT"><span class="material-symbols-outlined text-[16px]">account_balance_wallet</span></button>
+<button class="hover:bg-slate-800/50 hover:text-sky-300 transition-colors p-1 rounded-DEFAULT"><span class="material-symbols-outlined text-[16px]">memory</span></button>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-slate-900 border-r border-slate-800 h-full w-64 flex flex-col py-4 gap-1 shrink-0 font-mono text-[11px] font-medium tracking-wide uppercase text-sky-400">
+<div class="px-4 mb-4">
+<div class="text-sky-400 font-bold mb-4">BOT_ALPHA</div>
+<div class="text-slate-500 opacity-60">ID: 992-01X</div>
+</div>
+<a class="bg-sky-400/5 text-sky-400 border-r-2 border-sky-400 px-4 py-3 flex items-center gap-3 scale-[0.99] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+                Dashboard
+            </a>
+<a class="text-slate-500 px-4 py-3 flex items-center gap-3 hover:bg-slate-800 hover:text-slate-200 transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">analytics</span>
+                Analytics
+            </a>
+<a class="text-slate-500 px-4 py-3 flex items-center gap-3 hover:bg-slate-800 hover:text-slate-200 transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">list_alt</span>
+                Positions
+            </a>
+<a class="text-slate-500 px-4 py-3 flex items-center gap-3 hover:bg-slate-800 hover:text-slate-200 transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+                Logs
+            </a>
+<a class="text-slate-500 px-4 py-3 flex items-center gap-3 hover:bg-slate-800 hover:text-slate-200 transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+                Settings
+            </a>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 overflow-y-auto p-margin bg-background">
+<div class="max-w-[1440px] mx-auto grid grid-cols-12 gap-gutter h-full grid-rows-[auto_1fr_auto]">
+<!-- Top Row Metrics -->
+<div class="col-span-12 grid grid-cols-4 gap-gutter mb-gutter">
+<div class="bg-surface-container border border-outline-variant p-md rounded-DEFAULT">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm uppercase">Current Equity</h3>
+<div class="font-data-lg text-data-lg text-on-surface">$12,450.25</div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md rounded-DEFAULT">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm uppercase">Unrealized PnL</h3>
+<div class="font-data-lg text-data-lg text-secondary">+$452.10</div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md rounded-DEFAULT">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm uppercase">Total Trades</h3>
+<div class="font-data-lg text-data-lg text-on-surface">142</div>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md rounded-DEFAULT">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm uppercase">Win Rate</h3>
+<div class="font-data-lg text-data-lg text-on-surface">64.2%</div>
+</div>
+</div>
+<!-- Main Middle Section -->
+<div class="col-span-12 grid grid-cols-12 gap-gutter min-h-[400px]">
+<!-- Active Pairs Table -->
+<div class="col-span-8 bg-surface-container border border-outline-variant flex flex-col rounded-DEFAULT">
+<div class="p-sm border-b border-outline-variant flex justify-between items-center bg-surface-container-high">
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase">Active Pairs Overview</h2>
+<span class="bg-secondary/10 text-secondary font-label-caps text-label-caps px-2 py-1 rounded-DEFAULT border border-secondary/20">LIVE</span>
+</div>
+<div class="flex-1 overflow-auto">
+<table class="w-full text-left font-data-sm text-data-sm">
+<thead class="text-on-surface-variant border-b border-outline-variant bg-surface-container-low">
+<tr>
+<th class="p-sm font-normal">Pair</th>
+<th class="p-sm font-normal text-right">Z-Score</th>
+<th class="p-sm font-normal text-right">Position</th>
+<th class="p-sm font-normal text-right">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="border-b border-outline-variant hover:bg-surface-container-highest transition-colors">
+<td class="p-sm text-on-surface">BTC/USDT</td>
+<td class="p-sm text-error text-right flex items-center justify-end gap-1"><span class="material-symbols-outlined text-[12px]">arrow_drop_down</span> -1.82</td>
+<td class="p-sm text-right">LONG</td>
+<td class="p-sm text-right text-secondary">ACTIVE</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-highest transition-colors">
+<td class="p-sm text-on-surface">ETH/USDT</td>
+<td class="p-sm text-secondary text-right flex items-center justify-end gap-1"><span class="material-symbols-outlined text-[12px]">arrow_drop_up</span> +0.45</td>
+<td class="p-sm text-right text-on-surface-variant">FLAT</td>
+<td class="p-sm text-right text-on-surface-variant">MONITORING</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Risk Engine -->
+<div class="col-span-4 bg-surface-container border border-outline-variant flex flex-col rounded-DEFAULT">
+<div class="p-sm border-b border-outline-variant bg-surface-container-high">
+<h2 class="font-label-caps text-label-caps text-on-surface uppercase">Risk Engine</h2>
+</div>
+<div class="p-md flex flex-col gap-lg flex-1">
+<div>
+<div class="flex justify-between mb-xs font-data-sm text-data-sm text-on-surface-variant">
+<span>Daily PnL Limit</span>
+<span>-1.2% / -3.0%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden border border-outline-variant">
+<div class="bg-error h-full" style="width: 40%"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-xs font-data-sm text-data-sm text-on-surface-variant">
+<span>Weekly PnL Limit</span>
+<span>-2.5% / -7.0%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden border border-outline-variant">
+<div class="bg-error h-full" style="width: 35%"></div>
+</div>
+</div>
+<div class="mt-auto border-t border-outline-variant pt-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-md uppercase text-center">Current Drawdown</h3>
+<div class="flex items-end justify-center gap-xs font-data-lg text-data-lg text-error">
+                                    4.2% <span class="font-data-sm text-data-sm text-on-surface-variant pb-1">/ 20% Max</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Events Terminal Widget -->
+<div class="col-span-12 mt-gutter bg-surface-container border border-outline-variant h-32 flex flex-col rounded-DEFAULT">
+<div class="px-sm py-xs border-b border-outline-variant bg-surface-container-high flex gap-2">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="w-2 h-2 rounded-full bg-primary-container"></span>
+</div>
+<div class="p-sm font-data-sm text-data-sm text-on-surface-variant overflow-y-auto flex-1 font-mono">
+<div class="flex gap-2 mb-1"><span class="text-primary-container">[14:32:01]</span> <span>Executing signal SELL BTC/USDT qty 0.1</span></div>
+<div class="flex gap-2 mb-1"><span class="text-primary-container">[14:32:02]</span> <span>Order FILLED at 64,250.00</span></div>
+<div class="flex gap-2 mb-1"><span class="text-primary-container">[14:35:10]</span> <span class="text-error">WARN: Spread widening on ETH/USDT, pausing execution</span></div>
+<div class="flex gap-2"><span class="text-primary-container">[14:36:00]</span> <span class="text-secondary animate-pulse">_</span></div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>
