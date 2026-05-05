@@ -22,7 +22,7 @@ class DataFetcher:
     def _create_exchange(self, testnet: bool) -> ccxt.Exchange:
         exchange_class = getattr(ccxt, self.exchange_id)
         
-        params = {"enableRateLimit": True}
+        params = {"enableRateLimit": True, "options": {"adjustForTimeDifference": True}}
         if testnet and self.exchange_id == "binance":
             params["testnet"] = True
             

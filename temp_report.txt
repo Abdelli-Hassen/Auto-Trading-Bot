@@ -1,0 +1,41 @@
+---GOD_NODES---
+(most connected - your core abstractions)
+1. `DataStorage` - 67 edges
+2. `RiskManager` - 63 edges
+3. `DataFetcher` - 56 edges
+4. `Broker` - 47 edges
+5. `BacktestEngine` - 37 edges
+6. `PairsTradingStrategy` - 34 edges
+7. `OrderManager` - 32 edges
+8. `DataValidator` - 25 edges
+9. `TradingBot` - 22 edges
+10. `BaseStrategy` - 16 edges
+---SURPRISING---
+(you probably didn't know these)
+- `Calculate stop loss price based on ATR or fixed percentage.         For long: st` --uses--> `DataStorage`  [INFERRED]
+  risk\manager.py → old version\data\storage.py
+- `Calculate take profit price based on risk-reward ratio.` --uses--> `DataStorage`  [INFERRED]
+  risk\manager.py → old version\data\storage.py
+- `BotRuntime` --uses--> `DataFetcher`  [INFERRED]
+  old version\design_python_desktop.py → old version\data\fetcher.py
+- `BotRuntime` --uses--> `DataStorage`  [INFERRED]
+  old version\design_python_desktop.py → old version\data\storage.py
+- `BotRuntime` --uses--> `Broker`  [INFERRED]
+  old version\design_python_desktop.py → old version\execution\broker.py
+---QUESTIONS---
+_Questions this graph is uniquely positioned to answer:_
+
+- **Why does `DataStorage` connect `Manager Storage` to `Broker Fetcher`, `Rationale Example`, `Engine Validator`, `Main Design`, `Design Python`, `Design Python`?**
+  _High betweenness centrality (0.164) - this node is a cross-community bridge._
+- **Why does `RiskManager` connect `Rationale Example` to `Broker Fetcher`, `Manager Storage`, `Engine Validator`, `Main Design`, `Design Python`, `Design Python`?**
+  _High betweenness centrality (0.140) - this node is a cross-community bridge._
+- **Why does `DataFetcher` connect `Broker Fetcher` to `Rationale Example`, `Manager Storage`, `Engine Validator`, `Main Design`, `Design Python`, `Design Python`?**
+  _High betweenness centrality (0.116) - this node is a cross-community bridge._
+- **Are the 53 inferred relationships involving `DataStorage` (e.g. with `BotRuntime` and `MainWindow`) actually correct?**
+  _`DataStorage` has 53 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 46 inferred relationships involving `RiskManager` (e.g. with `BotRuntime` and `MainWindow`) actually correct?**
+  _`RiskManager` has 46 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 42 inferred relationships involving `DataFetcher` (e.g. with `BotRuntime` and `MainWindow`) actually correct?**
+  _`DataFetcher` has 42 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 31 inferred relationships involving `Broker` (e.g. with `BotRuntime` and `MainWindow`) actually correct?**
+  _`Broker` has 31 INFERRED edges - model-reasoned connections that need verification._
