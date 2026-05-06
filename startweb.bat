@@ -1,7 +1,6 @@
 @echo off
 rem ============================================================
-rem  AI Trading Terminal - Web Launcher
-rem  Starts the FastAPI backend + React frontend simultaneously
+rem  AI Trading Terminal - Optimized Web Launcher
 rem ============================================================
 
 setlocal
@@ -15,40 +14,32 @@ if exist ".venv\Scripts\python.exe" (
 )
 
 echo.
-echo  ========================================
-echo   AI Trading Terminal - Web Interface
-echo  ========================================
+echo  [⚡] ----------------------------------------
+echo  [⚡]   AI Trading Terminal - Fast Launch
+echo  [⚡] ----------------------------------------
 echo.
 
-rem Start FastAPI backend on port 8000
-echo [1/2] Starting FastAPI backend on http://localhost:8000 ...
-start "Trading Bot API" cmd /k "%PYTHON_CMD% -m uvicorn api.server:app --host 127.0.0.1 --port 8000 --reload"
+rem 1. Start FastAPI backend (Port 8000)
+echo [1/3] Launching Backend Engine...
+start "Trading Bot API" cmd /c "%PYTHON_CMD% -m uvicorn api.server:app --host 127.0.0.1 --port 8000"
 
-rem Give the backend a moment to boot
-timeout /t 3 /nobreak >nul
+rem 2. Start Tailwind CSS Watcher (in background)
+echo [2/3] Initializing Design System (Tailwind)...
+start /b "Tailwind Watcher" cmd /c "cd /d %SCRIPT_DIR%ReactFront\trading_bot && npx @tailwindcss/cli -i ./src/index.css -o ./src/output.css --watch"
 
-rem Build Tailwind CSS to output.css first to avoid Webpack PostCSS hangs
-echo [2/3] Building Tailwind CSS...
-start /b "Tailwind Build" cmd /c "cd /d %SCRIPT_DIR%ReactFront\trading_bot && npm run tailwind:build"
+rem 3. Start React frontend (Port 3000)
+echo [3/3] Starting Vite Dev Server...
+start "Trading Bot UI" cmd /c "cd /d %SCRIPT_DIR%ReactFront\trading_bot && npm start"
 
-rem Give Tailwind a moment to compile
-timeout /t 2 /nobreak >nul
-
-rem Start React frontend on port 3000
-echo [3/3] Starting React frontend on http://localhost:3000 ...
-start "Trading Bot UI" cmd /k "cd /d %SCRIPT_DIR%ReactFront\trading_bot && npm start"
-
-rem Wait for React dev server to compile
-timeout /t 5 /nobreak >nul
-
-rem Open the browser
+rem Open the browser much faster (Vite is near-instant)
 echo.
-echo Opening browser...
+echo [⚡] Opening dashboard...
+timeout /t 1 /nobreak >nul
 start http://localhost:3000
 
 echo.
-echo  Both servers are running in separate windows.
-echo  Close those windows to stop the servers.
+echo  [SUCCESS] All systems active.
+echo  Vite is now handling the frontend with ultra-fast startup.
 echo.
 
 endlocal

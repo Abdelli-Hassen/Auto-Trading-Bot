@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Maximize2, BarChart2, Activity } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
+import Tooltip from './Tooltip';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
 const TF_TO_API  = { '1m':'1m','5m':'5m','15m':'15m','30m':'30m','1H':'1h','4H':'4h','1D':'1d' };
@@ -75,7 +76,7 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
 
     const chart = createChart(el, {
       width:  el.clientWidth || 800,
-      height: 420,
+      height: 770,
       layout: {
         background: { type: ColorType.Solid, color: TV.bg },
         textColor:  TV.text,
@@ -233,7 +234,7 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
         position: s.direction === 'long' ? 'belowBar' : 'aboveBar',
         color:    s.direction === 'long' ? TV.up : TV.down,
         shape:    s.direction === 'long' ? 'arrowUp' : 'arrowDown',
-        text:     s.direction === 'long' ? 'BUY' : 'SELL',
+        text:     (s.direction === 'long' ? 'BUY ' : 'SELL ') + (s.rule || ''),
         size: 1,
       }))
     );
@@ -260,21 +261,25 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
         {/* Left */}
         <div className="flex items-center gap-3 sm:gap-5 flex-wrap min-w-0">
           {/* Symbol */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: TV.accent }} />
-            <span className="text-white font-bold text-sm sm:text-base tracking-tight">{symbol}</span>
-            <span className="text-[9px] font-mono uppercase tracking-wider hidden sm:inline" style={{ color: TV.text }}>BINANCE</span>
-          </div>
+          <Tooltip content="The current trading pair being analyzed and traded by the bot.">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: TV.accent }} />
+              <span className="text-white font-bold text-sm sm:text-base tracking-tight">{symbol}</span>
+              <span className="text-[9px] font-mono uppercase tracking-wider hidden sm:inline" style={{ color: TV.text }}>BINANCE</span>
+            </div>
+          </Tooltip>
 
           {/* Price */}
-          <div className="flex flex-col leading-none shrink-0">
-            <span className="text-lg sm:text-2xl font-mono font-bold tabular-nums" style={{ color: isUp ? TV.up : TV.down }}>
-              {(priceData?.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className="text-[10px] font-mono font-semibold mt-0.5" style={{ color: isUp ? TV.up : TV.down }}>
-              {isUp ? '▲' : '▼'} {Math.abs(chg).toFixed(2)}%
-            </span>
-          </div>
+          <Tooltip content="Real-time price feed from the exchange. Green means the price went up in the current candle, red means down.">
+            <div className="flex flex-col leading-none shrink-0">
+              <span className="text-lg sm:text-2xl font-mono font-bold tabular-nums" style={{ color: isUp ? TV.up : TV.down }}>
+                {(priceData?.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] font-mono font-semibold mt-0.5" style={{ color: isUp ? TV.up : TV.down }}>
+                {isUp ? '▲' : '▼'} {Math.abs(chg).toFixed(2)}%
+              </span>
+            </div>
+          </Tooltip>
 
           {/* OHLC tooltip on hover */}
           {ohlc ? (
@@ -291,18 +296,20 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
 
           {/* AI prediction badge */}
           {prediction && (
-            <div
-              className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono font-bold uppercase"
-              style={{ background: 'rgba(42,46,57,0.9)', border: `1px solid ${TV.border}`, color: prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent }}
-            >
-              <Activity size={10} />
-              BOT: {prediction.action || 'ANALYZING'}
-              <div className="flex gap-0.5 ml-1">
-                {[1,2,3,4,5].map(i => (
-                  <div key={i} style={{ width: 3, height: 10, borderRadius: 2, background: i <= Math.round((prediction.confidence || 0.5) * 5) ? (prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent) : TV.border }} />
-                ))}
+            <Tooltip content="The AI's current sentiment and action recommendation based on its internal strategy rules. More bars = higher confidence.">
+              <div
+                className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono font-bold uppercase"
+                style={{ background: 'rgba(42,46,57,0.9)', border: `1px solid ${TV.border}`, color: prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent }}
+              >
+                <Activity size={10} />
+                BOT: {prediction.action || 'ANALYZING'}
+                <div className="flex gap-0.5 ml-1">
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ width: 3, height: 10, borderRadius: 2, background: i <= Math.round((prediction.confidence || 0.5) * 5) ? (prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent) : TV.border }} />
+                  ))}
+                </div>
               </div>
-            </div>
+            </Tooltip>
           )}
         </div>
 
@@ -328,8 +335,8 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
         </div>
       </div>
 
-      {/* ── Chart Canvas (explicit 420px height — never zero) ── */}
-      <div ref={canvasRef} style={{ width: '100%', height: 420 }} />
+      {/* ── Chart Canvas (explicit 770px height — never zero) ── */}
+      <div ref={canvasRef} style={{ width: '100%', height: 770 }} />
     </div>
   );
 }

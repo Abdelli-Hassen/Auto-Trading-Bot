@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, Zap, Play, Square, AlertTriangle, ChevronDown, ToggleLeft, ToggleRight, Clock, TrendingUp } from 'lucide-react';
+import Tooltip from './Tooltip';
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 const MODES = ['Live', 'Paper'];
@@ -12,6 +13,7 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
   const [mode, setMode] = useState('Live');
   const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(true);
 
   // Session timer
   useEffect(() => {
@@ -36,24 +38,31 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
   return (
     <div className="glass-strong rounded-2xl flex flex-col gap-0 animate-fade-in-up overflow-hidden" style={{ animationDelay: '0.2s' }}>
       {/* Header */}
-      <div className="px-5 py-4 border-b border-[var(--color-surface-800)]/60 bg-[var(--color-surface-900)]/30 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-500 ${isConnected ? 'bg-[var(--color-gold-500)]/20 border border-[var(--color-gold-500)]/30' : 'bg-[var(--color-surface-800)] border border-[var(--color-surface-700)]'}`}>
-            <Zap size={18} className={isConnected ? 'text-[var(--color-gold-400)]' : 'text-[var(--color-surface-500)]'} />
+      <Tooltip wrapperClass="w-full" position="bottom" content="The core AI trading engine. 'Standby' means it is disconnected or paused. 'Session' shows how long it has been actively trading.">
+        <div 
+          className="px-5 py-4 border-b border-[var(--color-surface-800)]/60 bg-[var(--color-surface-900)]/30 flex justify-between items-center cursor-pointer transition-colors hover:bg-[var(--color-surface-800)]/40"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-500 ${isConnected ? 'bg-[var(--color-gold-500)]/20 border border-[var(--color-gold-500)]/30' : 'bg-[var(--color-surface-800)] border border-[var(--color-surface-700)]'}`}>
+              <Zap size={18} className={isConnected ? 'text-[var(--color-gold-400)]' : 'text-[var(--color-surface-500)]'} />
+            </div>
+            <div>
+              <h2 className="text-sm font-heading font-bold text-white tracking-widest">AI ENGINE</h2>
+              <p className="text-[10px] text-[var(--color-surface-500)] mt-0.5">{isRunning ? `Session ${formatSession(sessionSeconds)}` : 'Standby'}</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-heading font-bold text-white tracking-widest">AI ENGINE</h2>
-            <p className="text-[10px] text-[var(--color-surface-500)] mt-0.5">{isRunning ? `Session ${formatSession(sessionSeconds)}` : 'Standby'}</p>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[var(--color-profit)] animate-pulse-soft' : 'bg-[var(--color-loss)]'}`} />
+            <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--color-surface-400)] mr-2">
+              {isConnected ? 'Live' : 'Offline'}
+            </span>
+            <ChevronDown size={16} className={`text-[var(--color-surface-400)] transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[var(--color-profit)] animate-pulse-soft' : 'bg-[var(--color-loss)]'}`} />
-          <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--color-surface-400)]">
-            {isConnected ? 'Live' : 'Offline'}
-          </span>
-        </div>
-      </div>
+      </Tooltip>
 
+      {isExpanded && (
       <div className="p-5 flex flex-col gap-4">
         {/* Symbol + Mode Row */}
         <div className="grid grid-cols-2 gap-3">
@@ -83,20 +92,22 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
           </div>
 
           {/* Mode Selector */}
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-[var(--color-surface-500)] mb-1.5 font-medium">Mode</p>
-            <div className="flex gap-1 bg-[var(--color-surface-900)]/60 border border-[var(--color-surface-700)] rounded-lg p-1">
-              {MODES.map(m => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`flex-1 py-1.5 rounded-md text-xs font-bold tracking-wider transition-all cursor-pointer ${mode === m ? 'bg-[var(--color-gold-600)] text-black shadow-sm' : 'text-[var(--color-surface-400)] hover:text-white'}`}
-                >
-                  {m}
-                </button>
-              ))}
+          <Tooltip wrapperClass="w-full" position="bottom" content="Paper mode simulates trades without risking real money. Live mode places actual orders on the exchange.">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-surface-500)] mb-1.5 font-medium">Mode</p>
+              <div className="flex gap-1 bg-[var(--color-surface-900)]/60 border border-[var(--color-surface-700)] rounded-lg p-1">
+                {MODES.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-bold tracking-wider transition-all cursor-pointer ${mode === m ? 'bg-[var(--color-gold-600)] text-black shadow-sm' : 'text-[var(--color-surface-400)] hover:text-white'}`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          </Tooltip>
         </div>
 
         {/* Status Banner */}
@@ -132,7 +143,8 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
         </div>
 
         {/* Drawdown Gauge */}
-        <div>
+        <Tooltip wrapperClass="w-full" position="top" content="Drawdown measures the current loss from your highest peak balance. If it hits the limit, the bot automatically stops to protect your funds.">
+          <div>
           <div className="flex justify-between items-center mb-1.5">
             <p className="text-[10px] uppercase tracking-wider text-[var(--color-surface-500)] font-medium">Drawdown Risk</p>
             <p className="text-[10px] font-mono text-[var(--color-surface-400)]">
@@ -153,10 +165,15 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
             />
           </div>
         </div>
+        </Tooltip>
+        </div>
+      )}
 
-        {/* Action Buttons */}
+      {/* Action Buttons Always Visible */}
+      <div className={`p-5 flex flex-col gap-3 ${isExpanded ? 'pt-0' : ''}`}>
         <div className="grid grid-cols-2 gap-3">
-          <button
+          <Tooltip wrapperClass="w-full" position="top" content="Starts the AI engine. It will begin analyzing data and placing trades according to your current Mode (Live/Paper).">
+            <button
             onClick={onStart}
             disabled={isRunning || !isConnected}
             className={`btn-primary flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-heading font-bold text-xs tracking-wider transition-all duration-300 ${
@@ -167,8 +184,10 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
           >
             <Play size={14} fill="currentColor" />
             START
-          </button>
-          <button
+            </button>
+          </Tooltip>
+          <Tooltip wrapperClass="w-full" position="top" content="Safely halts the AI engine. It will stop opening new positions, but it will NOT automatically close existing ones unless they hit their take-profit or stop-loss.">
+            <button
             onClick={onStop}
             disabled={!isRunning || !isConnected}
             className={`btn-primary flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-heading font-bold text-xs tracking-wider transition-all duration-300 ${
@@ -179,11 +198,13 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
           >
             <Square size={12} fill="currentColor" />
             STOP
-          </button>
+            </button>
+          </Tooltip>
         </div>
 
         {/* Emergency Liquidate */}
-        <button
+        <Tooltip wrapperClass="w-full" position="top" content="PANIC BUTTON. Immediately force-closes all open positions at market price and halts the bot. Use only in extreme market conditions to prevent further loss.">
+          <button
           onClick={onLiquidate}
           disabled={!isRunning || !isConnected}
           className={`w-full py-3 rounded-xl text-xs font-heading font-bold tracking-widest transition-all duration-300 flex justify-center items-center gap-2 ${
@@ -195,6 +216,7 @@ export default function ControlPanel({ status, isConnected, onStart, onStop, onL
           <AlertTriangle size={14} />
           EMERGENCY LIQUIDATE
         </button>
+        </Tooltip>
       </div>
     </div>
   );
