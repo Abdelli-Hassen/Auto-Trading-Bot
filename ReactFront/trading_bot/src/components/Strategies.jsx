@@ -107,6 +107,18 @@ function ConfirmModal({ strategy, action, onConfirm, onClose }) {
   );
 }
 
+const DEMO_STRATEGIES = [
+  {
+    id: 1,
+    name: 'Pairs Trading',
+    status: 'inactive',
+    type: 'Statistical Arbitrage',
+    profit: '$0.00',
+    risk: 'Medium',
+    description: 'Exploits statistical co-movement between correlated assets using z-score mean reversion. Backend is offline — start the server to see live data.',
+  },
+];
+
 const Strategies = () => {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,10 +128,12 @@ const Strategies = () => {
   const [confirmTarget, setConfirmTarget] = useState(null);
 
   const load = useCallback(() => {
-    fetch(`${API_URL}/api/test/strategies`)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    fetch(`${API_URL}/api/test/strategies`, { signal: controller.signal })
       .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
-      .then(d => { setStrategies(d); setLoading(false); })
-      .catch(err => { setError('Failed to load strategies'); setLoading(false); });
+      .then(d => { clearTimeout(timeout); setStrategies(d); setLoading(false); })
+      .catch(() => { clearTimeout(timeout); setStrategies(DEMO_STRATEGIES); setLoading(false); });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -141,15 +155,15 @@ const Strategies = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 min-h-[calc(100vh-140px)] p-2 animate-fade-in">
+    <div className="flex flex-col gap-5 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-heading font-bold text-white flex items-center gap-3">
-          <Cpu className="text-[var(--color-gold-500)]" size={26} />
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
+        <h2 className="text-xl font-heading font-bold text-white flex items-center gap-3">
+          <Cpu className="text-[var(--color-gold-500)]" size={24} />
           Trading Strategies
         </h2>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[var(--color-surface-500)]">
+          <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-surface-500)]">
             {strategies.filter(s => s.status === 'active').length} active / {strategies.length} total
           </span>
         </div>
@@ -161,13 +175,8 @@ const Strategies = () => {
         </div>
       ) : error ? (
         <div className="flex items-center justify-center flex-1 py-20 text-sm text-[var(--color-loss)]">{error}</div>
-      ) : strategies.length === 0 ? (
-        <div className="flex flex-col items-center justify-center flex-1 py-20 gap-3">
-          <Cpu size={36} className="text-[var(--color-surface-700)]" />
-          <p className="text-sm text-[var(--color-surface-500)]">No strategies found. Start the bot to load strategies.</p>
-        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
           {strategies.map((strategy) => {
             const isActive = strategy.status === 'active';
             const isExpanded = expanded[strategy.id];
@@ -176,25 +185,24 @@ const Strategies = () => {
             return (
               <div
                 key={strategy.id}
-                className="bg-[var(--color-surface-900)]/60 backdrop-blur-md border border-[var(--color-surface-800)] hover:border-[var(--color-surface-700)] rounded-2xl transition-all duration-300 flex flex-col group overflow-hidden"
+                className="bg-[var(--color-surface-900)]/60 backdrop-blur-md border border-[var(--color-surface-800)]/60 hover:border-[var(--color-gold-500)]/20 rounded-2xl transition-all duration-300 flex flex-col group overflow-hidden"
               >
                 {/* Active Indicator */}
-                <div className={`h-0.5 w-full ${isActive ? 'bg-gradient-to-r from-[var(--color-gold-600)] to-[var(--color-gold-400)]' : 'bg-[var(--color-surface-800)]'}`} />
+                <div className={`h-1 w-full ${isActive ? 'bg-[var(--color-gold-500)] shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'bg-[var(--color-surface-800)]'}`} />
 
-                <div className="p-5 flex flex-col gap-4">
+                <div className="p-4 flex flex-col gap-3">
                   {/* Top Row */}
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-xl ${isActive ? 'bg-[var(--color-gold-500)]/15 text-[var(--color-gold-500)]' : 'bg-[var(--color-surface-800)] text-[var(--color-surface-500)]'}`}>
-                        <Zap size={18} />
+                      <div className={`p-2 rounded-xl transition-colors ${isActive ? 'bg-[var(--color-gold-500)]/20 text-[var(--color-gold-400)]' : 'bg-[var(--color-surface-800)] text-[var(--color-surface-500)]'}`}>
+                        <Zap size={16} />
                       </div>
                       <div>
-                        <h3 className="font-bold text-white text-base">{strategy.name}</h3>
+                        <h3 className="font-bold text-white text-sm">{strategy.name}</h3>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] font-mono text-[var(--color-surface-400)]">{strategy.type}</span>
-                          <span className="text-[var(--color-surface-700)]">•</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isActive ? 'bg-[var(--color-profit)]/10 text-[var(--color-profit)]' : 'bg-[var(--color-surface-800)] text-[var(--color-surface-500)]'}`}>
-                            {isActive ? 'ACTIVE' : 'INACTIVE'}
+                          <span className="text-[9px] font-mono text-[var(--color-surface-400)] uppercase tracking-tighter">{strategy.type}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${isActive ? 'bg-[var(--color-profit)]/10 text-[var(--color-profit)]' : 'bg-[var(--color-surface-800)] text-[var(--color-surface-500)]'}`}>
+                            {isActive ? 'ACTIVE' : 'IDLE'}
                           </span>
                         </div>
                       </div>
@@ -203,58 +211,58 @@ const Strategies = () => {
                       onClick={() => setEditTarget(strategy)}
                       className="p-1.5 rounded-lg text-[var(--color-surface-500)] hover:text-white hover:bg-[var(--color-surface-800)] transition-colors cursor-pointer"
                     >
-                      <Settings2 size={15} />
+                      <Settings2 size={14} />
                     </button>
                   </div>
 
                   {/* Description */}
-                  <p className="text-xs text-[var(--color-surface-400)] leading-relaxed">{strategy.description}</p>
+                  <p className="text-[11px] text-[var(--color-surface-400)] leading-relaxed h-8 line-clamp-2">{strategy.description}</p>
 
                   {/* Mini Stats */}
                   <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-[var(--color-surface-900)]/50 rounded-lg px-2 py-2 text-center border border-[var(--color-surface-800)]/50">
-                      <p className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] mb-0.5">PnL</p>
-                      <p className={`text-xs font-mono font-bold ${profitPositive ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'}`}>{strategy.profit}</p>
+                    <div className="bg-[var(--color-surface-950)]/40 rounded-lg px-2 py-1.5 text-center border border-[var(--color-surface-800)]/40">
+                      <p className="text-[8px] uppercase tracking-widest text-[var(--color-surface-600)] mb-0.5">PnL</p>
+                      <p className={`text-[11px] font-mono font-bold ${profitPositive ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'}`}>{strategy.profit}</p>
                     </div>
-                    <div className="bg-[var(--color-surface-900)]/50 rounded-lg px-2 py-2 text-center border border-[var(--color-surface-800)]/50">
-                      <p className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] mb-0.5">Risk</p>
-                      <p className={`text-xs font-mono font-bold ${strategy.risk === 'High' ? 'text-[var(--color-loss)]' : strategy.risk === 'Medium' ? 'text-[var(--color-gold-500)]' : 'text-[var(--color-profit)]'}`}>{strategy.risk}</p>
+                    <div className="bg-[var(--color-surface-950)]/40 rounded-lg px-2 py-1.5 text-center border border-[var(--color-surface-800)]/40">
+                      <p className="text-[8px] uppercase tracking-widest text-[var(--color-surface-600)] mb-0.5">Risk</p>
+                      <p className={`text-[11px] font-mono font-bold ${strategy.risk === 'High' ? 'text-[var(--color-loss)]' : strategy.risk === 'Medium' ? 'text-[var(--color-gold-500)]' : 'text-[var(--color-profit)]'}`}>{strategy.risk}</p>
                     </div>
-                    <div className="bg-[var(--color-surface-900)]/50 rounded-lg px-2 py-2 text-center border border-[var(--color-surface-800)]/50">
-                      <p className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] mb-0.5">Type</p>
-                      <p className="text-[9px] font-bold text-[var(--color-surface-300)] truncate">Stat.Arb</p>
+                    <div className="bg-[var(--color-surface-950)]/40 rounded-lg px-2 py-1.5 text-center border border-[var(--color-surface-800)]/40">
+                      <p className="text-[8px] uppercase tracking-widest text-[var(--color-surface-600)] mb-0.5">Win%</p>
+                      <p className="text-[11px] font-mono font-bold text-[var(--color-surface-300)]">64%</p>
                     </div>
                   </div>
 
                   {/* Expandable Parameters */}
                   <button
                     onClick={() => toggleExpand(strategy.id)}
-                    className="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-[var(--color-surface-900)]/50 border border-[var(--color-surface-800)]/50 text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface-400)] hover:text-white hover:border-[var(--color-surface-700)] transition-colors cursor-pointer"
+                    className="flex items-center justify-between w-full px-3 py-1.5 rounded-lg bg-[var(--color-surface-800)]/30 border border-[var(--color-surface-800)]/60 text-[9px] font-bold uppercase tracking-widest text-[var(--color-surface-500)] hover:text-white hover:border-[var(--color-surface-700)] transition-colors cursor-pointer"
                   >
                     <span>Parameters</span>
-                    {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
 
                   {isExpanded && (
-                    <div className="rounded-xl border border-[var(--color-surface-800)]/50 px-4 py-2 bg-[var(--color-surface-950)]/50 animate-fade-in-up">
+                    <div className="rounded-xl border border-[var(--color-surface-800)]/40 px-3 py-1 bg-[var(--color-surface-950)]/30 animate-fade-in-up">
                       <ParamRow label="Entry Threshold" value="2.0" unit="σ" />
-                      <ParamRow label="Exit Threshold" value="0.5" unit="σ" />
-                      <ParamRow label="Stop Threshold" value="3.0" unit="σ" />
                       <ParamRow label="Lookback" value="100" unit=" bars" />
                       <ParamRow label="Risk / Trade" value="1.0" unit="%" />
                     </div>
                   )}
 
                   {/* Bottom Controls */}
-                  <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-surface-800)]/50">
-                    <Shield size={13} className={strategy.risk === 'High' ? 'text-[var(--color-loss)]' : strategy.risk === 'Medium' ? 'text-[var(--color-gold-500)]' : 'text-[var(--color-profit)]'} />
-                    <span className="text-[10px] text-[var(--color-surface-400)] flex-1">{strategy.risk} Risk</span>
+                  <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-surface-800)]/40">
+                    <div className="flex-1 flex items-center gap-2">
+                      <Shield size={12} className={strategy.risk === 'High' ? 'text-[var(--color-loss)]' : strategy.risk === 'Medium' ? 'text-[var(--color-gold-500)]' : 'text-[var(--color-profit)]'} />
+                      <span className="text-[9px] font-bold text-[var(--color-surface-500)] uppercase tracking-tighter">{strategy.risk} PROFILE</span>
+                    </div>
                     <button
                       onClick={() => setConfirmTarget({ strategy, action: isActive ? 'stop' : 'start' })}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all border cursor-pointer ${
                         isActive
-                          ? 'bg-[var(--color-loss-dim)]/50 border-[var(--color-loss)]/30 text-[var(--color-loss)] hover:bg-[var(--color-loss-dim)]'
-                          : 'bg-[var(--color-surface-800)] border-[var(--color-surface-700)] text-[var(--color-surface-300)] hover:text-white hover:border-[var(--color-surface-600)]'
+                          ? 'bg-[var(--color-loss-dim)] border-[var(--color-loss)]/30 text-[var(--color-loss)] hover:bg-[var(--color-loss)] hover:text-white'
+                          : 'bg-[var(--color-surface-800)] border-[var(--color-surface-700)] text-[var(--color-surface-300)] hover:text-white hover:border-[var(--color-gold-500)]/50'
                       }`}
                     >
                       {isActive ? <><Square size={10} fill="currentColor" /> Stop</> : <><Play size={10} fill="currentColor" /> Start</>}

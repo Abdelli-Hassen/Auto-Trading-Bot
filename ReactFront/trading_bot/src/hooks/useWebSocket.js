@@ -1,53 +1,60 @@
 import { useState, useEffect, useRef } from 'react';
 
 export function useWebSocket(url) {
-  const [data, setData] = useState({
-    status: null,
-    prices: {},
-    timestamp: null
-  });
+  const [data, setData] = useState({ status: null, prices: {}, timestamp: null });
   const [isConnected, setIsConnected] = useState(false);
-  const ws = useRef(null);
+  const wsRef      = useRef(null);
+  const timerRef   = useRef(null);
+  const attempts   = useRef(0);
+  const unmounted  = useRef(false);
 
   useEffect(() => {
-    let reconnectInterval;
-    
+    unmounted.current = false;
+
     const connect = () => {
-      ws.current = new WebSocket(url);
-      
-      ws.current.onopen = () => {
-        setIsConnected(true);
-        console.log('WebSocket Connected');
-      };
-      
-      ws.current.onmessage = (event) => {
-        try {
-          const parsed = JSON.parse(event.data);
-          setData(parsed);
-        } catch (e) {
-          console.error("Failed to parse WS message", e);
-        }
-      };
-      
-      ws.current.onclose = () => {
-        setIsConnected(false);
-        console.log('WebSocket Disconnected. Reconnecting...');
-        reconnectInterval = setTimeout(connect, 3000);
-      };
-      
-      ws.current.onerror = (err) => {
-        console.error('WebSocket Error', err);
-        ws.current.close();
-      };
+      if (unmounted.current) return;
+
+      // Exponential backoff: 3s → 6s → 12s → max 30s
+      const delay = Math.min(3000 * Math.pow(1.5, attempts.current), 30000);
+
+      try {
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (unmounted.current) { ws.close(); return; }
+          setIsConnected(true);
+          attempts.current = 0; // reset backoff on success
+        };
+
+        ws.onmessage = (event) => {
+          try { setData(JSON.parse(event.data)); } catch { /* ignore */ }
+        };
+
+        ws.onclose = () => {
+          if (unmounted.current) return;
+          setIsConnected(false);
+          attempts.current += 1;
+          timerRef.current = setTimeout(connect, delay);
+        };
+
+        ws.onerror = () => {
+          // onerror is always followed by onclose, so we handle reconnect there
+          ws.close();
+        };
+      } catch {
+        // WebSocket constructor can throw (e.g. invalid URL)
+        attempts.current += 1;
+        timerRef.current = setTimeout(connect, delay);
+      }
     };
 
     connect();
 
     return () => {
-      if (ws.current) {
-        ws.current.close();
-      }
-      clearTimeout(reconnectInterval);
+      unmounted.current = true;
+      clearTimeout(timerRef.current);
+      if (wsRef.current) wsRef.current.close();
     };
   }, [url]);
 

@@ -273,6 +273,32 @@ def get_analytics(timeframe: str = "all"):
         }
 
 
+@app.get("/api/test/ohlcv")
+async def get_ohlcv(symbol: str = "BTC/USDT", timeframe: str = "1m", limit: int = 100):
+    """Return real OHLCV history from the exchange."""
+    try:
+        # Use run_in_threadpool since fetch_ohlcv is blocking
+        df = await run_in_threadpool(bot_instance.data_fetcher.fetch_ohlcv, symbol, timeframe, limit=limit)
+        if df.empty:
+            return []
+        
+        # Convert to lightweight-charts format
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "time": int(row['timestamp'].timestamp()),
+                "open": float(row['open']),
+                "high": float(row['high']),
+                "low": float(row['low']),
+                "close": float(row['close']),
+                "volume": float(row['volume'])
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_ohlcv: {e}")
+        return []
+
+
 @app.get("/api/test/strategies")
 def get_strategies():
     """Return the real strategy registered in the bot."""

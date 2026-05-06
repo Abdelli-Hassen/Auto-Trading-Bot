@@ -54,6 +54,11 @@ class TradingBot:
         }
         self._wins = 0
         self.recent_signals = []
+        self.current_prediction = {
+            "action": "NEUTRAL",
+            "confidence": 0.5,
+            "sentiment": "NEUTRAL"
+        }
         
     async def initialize(self):
         """Initialize the trading bot."""
@@ -152,8 +157,10 @@ class TradingBot:
             
             if not can_trade:
                 logger.warning(f"Trading halted: {reason}")
-                # Still sleep and check again later
+                send_alert(f"Bot Halted: {reason}", "WARNING")
                 return
+            
+            logger.info("Market check passed. Fetching OHLCV...")
             
             # Fetch latest data without blocking event loop
             btc_data = await asyncio.to_thread(self.data_fetcher.fetch_ohlcv, "BTC/USDT", limit=100)
@@ -190,11 +197,13 @@ class TradingBot:
                 action = "long" if sig_val == 1 else "short"
                 
                 # Update UI Signals feed
-                sig_time = datetime.now().strftime("%H:%M:%S")
+                now = datetime.now()
+                sig_time = now.strftime("%H:%M:%S")
                 self.recent_signals.insert(0, {
                     "symbol": "BTC/USDT",
                     "direction": action,
                     "time": sig_time,
+                    "timestamp": int(now.timestamp()),
                     "price": price1
                 })
                 self.recent_signals = self.recent_signals[:10]  # Keep last 10
@@ -226,6 +235,16 @@ class TradingBot:
                 
                 send_alert(f"Executed demo {action} trade. PnL: ${cost:+.2f}", "INFO")
             
+            # Update Next Move Prediction Logic
+            # In a real bot, this would come from strategy technicals or an ML model
+            sentiment_score = random.uniform(0, 1)
+            if sentiment_score > 0.7:
+                self.current_prediction = {"action": "ACCUMULATING", "confidence": sentiment_score, "sentiment": "BULLISH"}
+            elif sentiment_score < 0.3:
+                self.current_prediction = {"action": "DISTRIBUTING", "confidence": 1 - sentiment_score, "sentiment": "BEARISH"}
+            else:
+                self.current_prediction = {"action": "NEUTRAL", "confidence": 0.5, "sentiment": "NEUTRAL"}
+
             # Log that we're alive
             logger.debug(f"Trading cycle completed at {datetime.now()}")
             
@@ -244,7 +263,8 @@ class TradingBot:
             'timestamp': datetime.now().isoformat(),
             'risk_metrics': self.risk_manager.get_risk_metrics(),
             'daily_stats': self.daily_stats,
-            'recent_signals': self.recent_signals
+            'recent_signals': self.recent_signals,
+            'prediction': self.current_prediction
         }
 
 def signal_handler(signum, frame):

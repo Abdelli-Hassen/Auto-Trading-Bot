@@ -5,6 +5,7 @@ import ControlPanel from './components/ControlPanel';
 import Analytics from './components/Analytics';
 import Strategies from './components/Strategies';
 import History from './components/History';
+import Profile from './components/Profile';
 import SettingsModal from './components/SettingsModal';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -65,41 +66,40 @@ function App() {
 
   // Main Trading Workspace Content
   const renderTradingWorkspace = () => (
-    <div className="flex flex-col lg:grid lg:grid-cols-12 gap-4 lg:gap-6 min-h-[600px] lg:h-[calc(100vh-140px)]">
-      <div className="lg:col-span-8 xl:col-span-9 h-[50vh] lg:h-full min-h-[400px]">
-        <div className="h-full w-full rounded-2xl bg-[var(--color-surface-900)]/40 border border-[var(--color-surface-800)]/60 shadow-2xl overflow-hidden backdrop-blur-md">
-          <ChartWidget 
-            symbol={symbol} 
-            priceData={{
-              timestamp: data?.timestamp,
-              price: data?.prices?.[symbol]?.last || 0,
-              change: data?.prices?.[symbol]?.change || 0,
-              volume: data?.prices?.[symbol]?.volume || 0
-            }} 
-          />
-        </div>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
+      {/* Chart — full width on mobile, 9/12 on desktop */}
+      <div className="lg:col-span-8 xl:col-span-9">
+        <ChartWidget
+          symbol={symbol}
+          priceData={{
+            timestamp: data?.timestamp,
+            price: data?.prices?.[symbol]?.last || 0,
+            change: data?.prices?.[symbol]?.change || 0,
+            volume: data?.prices?.[symbol]?.volume || 0,
+          }}
+          signals={data?.status?.recent_signals}
+          prediction={data?.status?.prediction}
+        />
       </div>
-      <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-4 lg:gap-6 h-auto lg:h-full lg:overflow-y-auto pr-1">
-        <div className="shrink-0">
-          <ControlPanel 
-            status={data?.status} 
-            isConnected={isConnected}
-            onStart={handleStart}
-            onStop={handleStop}
-            onLiquidate={handleLiquidate}
-            symbol={symbol}
-            onSymbolChange={setSymbol}
-          />
-        </div>
-        <div className="flex-1 min-h-[300px]">
-          <OrderBook status={data?.status} prices={data?.prices} />
-        </div>
+
+      {/* Sidebar — stacks below chart on mobile, right column on desktop */}
+      <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-4">
+        <ControlPanel
+          status={data?.status}
+          isConnected={isConnected}
+          onStart={handleStart}
+          onStop={handleStop}
+          onLiquidate={handleLiquidate}
+          symbol={symbol}
+          onSymbolChange={setSymbol}
+        />
+        <OrderBook status={data?.status} prices={data?.prices} />
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans">
+    <div className="min-h-screen w-full bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans relative">
       {/* Ambient Glow */}
       <div className="fixed top-0 left-[-10%] lg:left-[20%] w-[400px] lg:w-[600px] h-[400px] lg:h-[600px] bg-[var(--color-gold-600)]/5 rounded-full blur-[100px] lg:blur-[120px] pointer-events-none" />
       <div className="fixed bottom-0 right-[-10%] lg:right-[10%] w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-[var(--color-profit)]/5 rounded-full blur-[80px] lg:blur-[100px] pointer-events-none" />
@@ -121,7 +121,7 @@ function App() {
 
           {/* Navigation Links */}
           <nav className="hidden md:flex items-center gap-1">
-            {['Trading', 'Analytics', 'Strategies', 'History'].map((item) => (
+            {['Trading', 'Analytics', 'Strategies', 'History', 'Profile'].map((item) => (
               <button 
                 key={item} 
                 onClick={() => setActiveTab(item)}
@@ -179,12 +179,13 @@ function App() {
       )}
 
       {/* Main Dynamic Workspace */}
-      <main className="relative z-10 flex-1 p-4 lg:p-6 overflow-y-auto">
-        <div className="max-w-[1920px] mx-auto h-full">
-          {activeTab === 'Trading' && renderTradingWorkspace()}
-          {activeTab === 'Analytics' && <Analytics />}
+      <main className="relative z-10 flex-1 w-full px-4 lg:px-6 py-4 pb-6">
+        <div className="max-w-[1920px] mx-auto w-full">
+          {activeTab === 'Trading'    && renderTradingWorkspace()}
+          {activeTab === 'Analytics'  && <Analytics />}
           {activeTab === 'Strategies' && <Strategies />}
-          {activeTab === 'History' && <History />}
+          {activeTab === 'History'    && <History />}
+          {activeTab === 'Profile'    && <Profile data={data} />}
         </div>
       </main>
 

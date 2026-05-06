@@ -1,200 +1,335 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Maximize2, Settings2, BarChart2 } from 'lucide-react';
-import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { Maximize2, BarChart2, Activity } from 'lucide-react';
+import { createChart, ColorType, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
 
-export default function ChartWidget({ symbol, priceData }) {
-  const [timeframe, setTimeframe] = useState('1m');
-  const chartContainerRef = useRef(null);
-  const chartRef = useRef(null);
-  const seriesRef = useRef(null);
-  const currentCandleRef = useRef(null);
+const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
+const TF_TO_API  = { '1m':'1m','5m':'5m','15m':'15m','30m':'30m','1H':'1h','4H':'4h','1D':'1d' };
+const TF_SECS    = { '1m':60,'5m':300,'15m':900,'30m':1800,'1H':3600,'4H':14400,'1D':86400 };
 
-  const tfs = ['1m', '5m', '15m', '1H', '4H', '1D'];
+const TV = {
+  bg:      '#131722',
+  topbar:  '#1e222d',
+  grid:    'rgba(42, 46, 57, 0.6)',
+  text:    '#B2B5BE',
+  border:  '#2A2E39',
+  up:      '#26a69a',
+  down:    '#ef5350',
+  volUp:   'rgba(38, 166, 154, 0.45)',
+  volDown: 'rgba(239, 83, 80, 0.45)',
+  cross:   '#758696',
+  crossBg: '#2A2E39',
+  active:  '#2962FF',
+  accent:  '#f59e0b',
+};
 
-  const chg = priceData?.change || 0;
+/** Generates realistic-looking demo candles when API is offline */
+function makeDemoCandles(symbol, count = 150) {
+  const base = symbol.includes('BTC') ? 65000 : symbol.includes('ETH') ? 3200 : 150;
+  const now  = Math.floor(Date.now() / 1000);
+  const out  = [];
+  let price  = base;
+  for (let i = count; i >= 0; i--) {
+    const t = now - i * 60;
+    // smooth sinusoidal trend + noise
+    price += (Math.sin(i * 0.17) * 0.003 + (Math.random() - 0.5) * 0.004) * price;
+    price  = Math.max(price, base * 0.6);
+    const open   = price;
+    const change = (Math.random() - 0.5) * 0.005 * price;
+    const close  = price + change;
+    const high   = Math.max(open, close) + Math.random() * 0.002 * price;
+    const low    = Math.min(open, close) - Math.random() * 0.002 * price;
+    const volume = (Math.random() * 800 + 200);
+    out.push({ time: t, open, high, low, close, volume });
+    price = close;
+  }
+  return out;
+}
+
+export default function ChartWidget({ symbol, priceData, signals = [], prediction }) {
+  const [tf, setTf]   = useState('1m');
+  const [ohlc, setOhlc] = useState(null);
+
+  // DOM refs
+  const wrapRef   = useRef(null);
+  const canvasRef = useRef(null);
+
+  // Library refs (survive re-renders without state)
+  const chartR    = useRef(null);
+  const candleR   = useRef(null);
+  const volR      = useRef(null);
+  const markersR  = useRef(null);
+  const liveC     = useRef(null);  // current live candle
+  const liveV     = useRef(null);  // current live vol bar
+  const roRef     = useRef(null);  // ResizeObserver
+  const ready     = useRef(false); // chart initialised?
+
+  const chg  = priceData?.change || 0;
   const isUp = chg >= 0;
 
+  // ── 1. Mount: Create chart synchronously ─────────────────────────────────
+  //   canvasRef has an explicit pixel height (420px), so it ALWAYS has
+  //   real dimensions when this effect fires — no deferred RAF needed.
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    const el = canvasRef.current;
+    if (!el || chartR.current) return;  // already created
 
-    const chart = createChart(chartContainerRef.current, {
+    const chart = createChart(el, {
+      width:  el.clientWidth || 800,
+      height: 420,
       layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#94a3b8',
+        background: { type: ColorType.Solid, color: TV.bg },
+        textColor:  TV.text,
+        fontSize:   11,
+        fontFamily: "'JetBrains Mono','Fira Code',monospace",
       },
       grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+        vertLines: { color: TV.grid, style: 1 },
+        horzLines: { color: TV.grid, style: 1 },
       },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
       rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderColor:  TV.border,
+        scaleMargins: { top: 0.08, bottom: 0.22 },
       },
       timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        timeVisible: true,
+        borderColor:    TV.border,
+        timeVisible:    true,
         secondsVisible: false,
       },
       crosshair: {
-        mode: 0,
-      }
+        mode:     1,
+        vertLine: { color: TV.cross, width: 1, style: 2, labelBackgroundColor: TV.crossBg },
+        horzLine: { color: TV.cross, width: 1, style: 2, labelBackgroundColor: TV.crossBg },
+      },
+      handleScroll: { vertTouchDrag: false },
     });
 
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#f43f5e',
+    const candles = chart.addSeries(CandlestickSeries, {
+      upColor: TV.up, downColor: TV.down,
       borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
+      wickUpColor: TV.up, wickDownColor: TV.down,
     });
 
-    chartRef.current = chart;
-    seriesRef.current = series;
+    const vol = chart.addSeries(HistogramSeries, {
+      color: TV.volUp, priceFormat: { type: 'volume' }, priceScaleId: 'vol',
+    });
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
-    const handleResize = () => {
-      chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
-    };
+    markersR.current = createSeriesMarkers(candles);
+    chart.subscribeCrosshairMove(p => {
+      if (!p.time) { setOhlc(null); return; }
+      const c = p.seriesData?.get(candles);
+      if (c) setOhlc({ ...c, isUp: c.close >= c.open });
+    });
 
-    window.addEventListener('resize', handleResize);
+    chartR.current  = chart;
+    candleR.current = candles;
+    volR.current    = vol;
+    ready.current   = true;
+
+    // Immediately load demo data so chart is never blank
+    const demo = makeDemoCandles(symbol);
+    candles.setData(demo.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+    vol.setData(demo.map(({ time, volume, close, open }) => ({
+      time, value: volume, color: close >= open ? TV.volUp : TV.volDown,
+    })));
+    chart.timeScale().fitContent();
+
+    // ResizeObserver for width-only updates (height is fixed at 420px)
+    const ro = new ResizeObserver(() => {
+      if (!wrapRef.current || !chartR.current) return;
+      const w = wrapRef.current.clientWidth;
+      if (w > 0) chartR.current.applyOptions({ width: w });
+    });
+    if (wrapRef.current) ro.observe(wrapRef.current);
+    roRef.current = ro;
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      ro.disconnect();
       chart.remove();
+      chartR.current = null;
+      ready.current  = false;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const historyGeneratedRef = useRef(false);
-
-  // Update chart when price changes
+  // ── 2. Fetch real OHLCV from API (runs after chart is ready) ─────────────
   useEffect(() => {
-    if (seriesRef.current && priceData?.price && priceData?.timestamp) {
-      // In a real app we'd receive complete OHLCV from WS.
-      // Since we only get 'last price', we simulate a live updating candle
-      // by updating the close price of the current timeframe candle.
-      
+    if (!ready.current) return;
+    liveC.current = null;
+    liveV.current = null;
+
+    let cancelled = false;
+
+    const loadFromAPI = async () => {
+      const ctrl    = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 4000);
       try {
-        const timestamp = Math.floor(new Date(priceData.timestamp).getTime() / 1000);
-        // Normalize time to 1m boundary for simulation
-        const currentMinute = timestamp - (timestamp % 60);
-        const price = priceData.price;
-        
-        if (!historyGeneratedRef.current) {
-            const history = [];
-            let lastClose = price;
-            for (let i = 100; i >= 1; i--) {
-                const time = currentMinute - (i * 60);
-                const open = lastClose;
-                const close = open * (1 + (Math.random() - 0.5) * 0.002);
-                const high = Math.max(open, close) * (1 + Math.random() * 0.001);
-                const low = Math.min(open, close) * (1 - Math.random() * 0.001);
-                history.push({ time, open, high, low, close });
-                lastClose = close;
-            }
-            seriesRef.current.setData(history);
-            chartRef.current.timeScale().fitContent();
-            historyGeneratedRef.current = true;
+        const res  = await fetch(
+          `http://localhost:8000/api/test/ohlcv?symbol=${encodeURIComponent(symbol)}&timeframe=${TF_TO_API[tf]||'1m'}&limit=200`,
+          { signal: ctrl.signal }
+        );
+        clearTimeout(timeout);
+        if (cancelled) return;
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0 && candleR.current) {
+          candleR.current.setData(data);
+          volR.current.setData(data.map(d => ({
+            time: d.time, value: d.volume || 0,
+            color: d.close >= d.open ? TV.volUp : TV.volDown,
+          })));
+          chartR.current.timeScale().fitContent();
         }
+      } catch {
+        clearTimeout(timeout);
+        // Backend offline — demo data is already shown, nothing to do
+      }
+    };
 
-        if (!currentCandleRef.current || currentCandleRef.current.time !== currentMinute) {
-          // Start a new candle for the new minute
-          currentCandleRef.current = {
-            time: currentMinute,
-            open: price,
-            high: price,
-            low: price,
-            close: price
-          };
-        } else {
-          // Update the current minute's candle OHLC
-          currentCandleRef.current.high = Math.max(currentCandleRef.current.high, price);
-          currentCandleRef.current.low = Math.min(currentCandleRef.current.low, price);
-          currentCandleRef.current.close = price;
-        }
-        
-        seriesRef.current.update(currentCandleRef.current);
-      } catch(e) {}
+    loadFromAPI();
+
+    // Also refresh demo candles immediately when tf/symbol changes
+    if (ready.current && candleR.current) {
+      const demo = makeDemoCandles(symbol);
+      candleR.current.setData(demo.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+      volR.current.setData(demo.map(({ time, volume, close, open }) => ({
+        time, value: volume, color: close >= open ? TV.volUp : TV.volDown,
+      })));
+      chartR.current.timeScale().fitContent();
+      // Then try API
     }
-  }, [priceData]);
 
+    return () => { cancelled = true; };
+  }, [symbol, tf]);
+
+  // ── 3. Live tick ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!ready.current || !candleR.current || !priceData?.price || !priceData?.timestamp) return;
+    try {
+      const ts     = Math.floor(new Date(priceData.timestamp).getTime() / 1000);
+      if (isNaN(ts)) return;
+      const bucket = ts - (ts % (TF_SECS[tf] || 60));
+      const price  = priceData.price;
+
+      if (!liveC.current || liveC.current.time !== bucket) {
+        liveC.current = { time: bucket, open: price, high: price, low: price, close: price };
+        liveV.current = { time: bucket, value: 0, color: TV.volUp };
+      } else {
+        liveC.current.high  = Math.max(liveC.current.high, price);
+        liveC.current.low   = Math.min(liveC.current.low,  price);
+        liveC.current.close = price;
+        liveV.current.color = price >= liveC.current.open ? TV.volUp : TV.volDown;
+      }
+
+      candleR.current.update(liveC.current);
+      volR.current.update(liveV.current);
+    } catch { /* ignore */ }
+  }, [priceData, tf]);
+
+  // ── 4. Markers ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!markersR.current || !signals?.length) return;
+    markersR.current.setMarkers(
+      signals.filter(s => s.timestamp).map(s => ({
+        time:     s.timestamp,
+        position: s.direction === 'long' ? 'belowBar' : 'aboveBar',
+        color:    s.direction === 'long' ? TV.up : TV.down,
+        shape:    s.direction === 'long' ? 'arrowUp' : 'arrowDown',
+        text:     s.direction === 'long' ? 'BUY' : 'SELL',
+        size: 1,
+      }))
+    );
+  }, [signals]);
+
+  // ── Fullscreen ─────────────────────────────────────────────────────────────
+  const toggleFS = () => {
+    if (!document.fullscreenElement) wrapRef.current?.requestFullscreen();
+    else document.exitFullscreen();
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-[var(--color-surface-900)] to-[var(--color-surface-950)] relative">
-      {/* Top Bar */}
-      <div className="flex flex-wrap items-center justify-between px-4 lg:px-6 py-3 lg:py-4 border-b border-[var(--color-surface-800)]/60 bg-[var(--color-surface-900)]/40 gap-4 z-10 relative">
-        {/* Symbol & Price Info */}
-        <div className="flex items-center gap-4 lg:gap-8">
-          <div>
-            <h2 className="text-xl lg:text-2xl font-heading font-bold text-white tracking-wide flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--color-gold-500)] animate-pulse" />
-              {symbol}
-            </h2>
-            <div className="flex items-center gap-3 mt-1 text-[10px] lg:text-xs font-mono">
-              <span className="text-[var(--color-surface-400)] tracking-wider">BINANCE</span>
-              <span className="w-1 h-1 rounded-full bg-[var(--color-surface-600)]" />
-              <span className="text-[var(--color-surface-400)] tracking-wider">SPOT</span>
+    <div
+      ref={wrapRef}
+      className="w-full rounded-2xl overflow-hidden border"
+      style={{ background: TV.bg, borderColor: TV.border }}
+    >
+      {/* ── Top Bar ── */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5"
+        style={{ background: TV.topbar, borderBottom: `1px solid ${TV.border}` }}
+      >
+        {/* Left */}
+        <div className="flex items-center gap-3 sm:gap-5 flex-wrap min-w-0">
+          {/* Symbol */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: TV.accent }} />
+            <span className="text-white font-bold text-sm sm:text-base tracking-tight">{symbol}</span>
+            <span className="text-[9px] font-mono uppercase tracking-wider hidden sm:inline" style={{ color: TV.text }}>BINANCE</span>
+          </div>
+
+          {/* Price */}
+          <div className="flex flex-col leading-none shrink-0">
+            <span className="text-lg sm:text-2xl font-mono font-bold tabular-nums" style={{ color: isUp ? TV.up : TV.down }}>
+              {(priceData?.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] font-mono font-semibold mt-0.5" style={{ color: isUp ? TV.up : TV.down }}>
+              {isUp ? '▲' : '▼'} {Math.abs(chg).toFixed(2)}%
+            </span>
+          </div>
+
+          {/* OHLC tooltip on hover */}
+          {ohlc ? (
+            <div className="hidden sm:flex items-center gap-3 text-[10px] font-mono">
+              {[['O', ohlc.open], ['H', ohlc.high], ['L', ohlc.low], ['C', ohlc.close]].map(([label, val]) => (
+                <span key={label} style={{ color: TV.text }}>
+                  {label} <span style={{ color: label === 'H' ? TV.up : label === 'L' ? TV.down : ohlc.isUp ? TV.up : TV.down }}>{Number(val).toFixed(2)}</span>
+                </span>
+              ))}
             </div>
-          </div>
-          
-          <div className="h-8 w-px bg-[var(--color-surface-800)] hidden sm:block" />
-          
-          <div className="flex flex-col">
-            <span className={`text-xl lg:text-3xl font-mono font-bold tracking-tight leading-none ${isUp ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'} transition-colors duration-300`}>
-              ${(priceData?.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className={`text-[10px] lg:text-xs font-mono font-bold mt-1 ${isUp ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'}`}>
-              {isUp ? '+' : ''}{chg.toFixed(2)}% (24h)
-            </span>
-          </div>
+          ) : (
+            <span className="hidden md:inline text-[10px] font-mono opacity-40" style={{ color: TV.text }}>Hover to inspect</span>
+          )}
 
-          <div className="h-8 w-px bg-[var(--color-surface-800)] hidden md:block" />
-
-          <div className="hidden md:flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-[var(--color-surface-500)] mb-1 font-medium">24h Vol</span>
-            <span className="text-xs font-mono text-white">{(priceData?.volume || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-          </div>
+          {/* AI prediction badge */}
+          {prediction && (
+            <div
+              className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono font-bold uppercase"
+              style={{ background: 'rgba(42,46,57,0.9)', border: `1px solid ${TV.border}`, color: prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent }}
+            >
+              <Activity size={10} />
+              BOT: {prediction.action || 'ANALYZING'}
+              <div className="flex gap-0.5 ml-1">
+                {[1,2,3,4,5].map(i => (
+                  <div key={i} style={{ width: 3, height: 10, borderRadius: 2, background: i <= Math.round((prediction.confidence || 0.5) * 5) ? (prediction.sentiment === 'BULLISH' ? TV.up : prediction.sentiment === 'BEARISH' ? TV.down : TV.accent) : TV.border }} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Tools & Timeframe */}
-        <div className="flex items-center gap-2 lg:gap-4 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
-          <div className="flex bg-[var(--color-surface-900)] border border-[var(--color-surface-800)] rounded-lg p-1 shrink-0">
-            {tfs.map((tf) => (
+        {/* Right */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex rounded overflow-hidden" style={{ border: `1px solid ${TV.border}` }}>
+            {TIMEFRAMES.map(t => (
               <button
-                key={tf}
-                onClick={() => setTimeframe(tf)}
-                className={`px-2.5 lg:px-4 py-1.5 rounded-md text-[10px] lg:text-xs font-bold font-mono tracking-wider transition-all duration-200 cursor-pointer ${
-                  timeframe === tf
-                    ? 'bg-[var(--color-gold-600)] text-black shadow-sm'
-                    : 'text-[var(--color-surface-400)] hover:text-white hover:bg-[var(--color-surface-800)]/50'
-                }`}
-              >
-                {tf}
-              </button>
+                key={t}
+                onClick={() => setTf(t)}
+                className="px-2 sm:px-2.5 py-1 text-[10px] sm:text-[11px] font-mono font-bold cursor-pointer"
+                style={{
+                  background:  tf === t ? TV.active : 'transparent',
+                  color:       tf === t ? '#fff' : TV.text,
+                  borderRight: `1px solid ${TV.border}`,
+                }}
+              >{t}</button>
             ))}
           </div>
-
-          <div className="flex items-center gap-1 shrink-0 ml-auto sm:ml-0">
-            <button className="p-2 rounded-lg text-[var(--color-surface-400)] hover:text-white hover:bg-[var(--color-surface-800)] transition-colors cursor-pointer">
-              <Settings2 size={16} />
-            </button>
-            <button className="p-2 rounded-lg text-[var(--color-surface-400)] hover:text-white hover:bg-[var(--color-surface-800)] transition-colors cursor-pointer">
-              <Maximize2 size={16} />
-            </button>
-          </div>
+          <button onClick={toggleFS} className="p-1.5 rounded cursor-pointer" style={{ color: TV.text }}>
+            <Maximize2 size={14} />
+          </button>
         </div>
       </div>
 
-      {/* Main Chart Area */}
-      <div className="flex-1 relative w-full h-full" ref={chartContainerRef}>
-        {!priceData?.price && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 z-20 bg-[var(--color-surface-950)]/80 backdrop-blur-sm">
-             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--color-surface-800)] to-[var(--color-surface-900)] border border-[var(--color-surface-700)] flex items-center justify-center mb-6 animate-pulse">
-               <BarChart2 size={32} className="text-[var(--color-gold-500)]" />
-             </div>
-             <h3 className="text-xl font-heading font-bold text-white mb-2">Connecting to Data Feed</h3>
-             <p className="text-sm text-[var(--color-surface-400)]">Waiting for real-time WebSocket tick data...</p>
-          </div>
-        )}
-      </div>
+      {/* ── Chart Canvas (explicit 420px height — never zero) ── */}
+      <div ref={canvasRef} style={{ width: '100%', height: 420 }} />
     </div>
   );
 }
