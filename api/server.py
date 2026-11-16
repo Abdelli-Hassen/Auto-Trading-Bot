@@ -218,9 +218,9 @@ def get_analytics(timeframe: str = "all"):
         equity_rows = _query(f"SELECT timestamp, equity FROM equity WHERE 1=1 {tf} ORDER BY timestamp ASC")
         daily_rows = _query(f"""
             SELECT date(timestamp), SUM(pnl), COUNT(*) FROM trades
-            WHERE type = 'close' {tf} GROUP BY date(timestamp) ORDER BY date(timestamp)""")
+            WHERE type IN ('close', 'reduce') {tf} GROUP BY date(timestamp) ORDER BY date(timestamp)""")
         symbol_rows = _query(f"""
-            SELECT symbol, COUNT(*), SUM(CASE WHEN type = 'close' THEN 1 ELSE 0 END), SUM(pnl)
+            SELECT symbol, COUNT(*), SUM(CASE WHEN type IN ('close', 'reduce') THEN 1 ELSE 0 END), SUM(pnl)
             FROM trades WHERE 1=1 {tf} GROUP BY symbol""")
 
         risk = bot_instance.risk_manager.get_risk_metrics()
@@ -464,7 +464,7 @@ def get_history():
             "rawCost": cost or 0.0,
             "rawPnl": pnl,
             "fee": f"${fee:,.4f}" if fee else "—",
-            "pnl": f"${pnl:+,.2f}" if (kind == "close" or pnl) else "—",
+            "pnl": f"${pnl:+,.2f}" if (kind in ("close", "reduce") or pnl) else "—",
             "status": status or "closed",
         })
     return result

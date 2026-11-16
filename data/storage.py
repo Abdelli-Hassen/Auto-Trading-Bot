@@ -270,7 +270,7 @@ class DataStorage:
         """Realised PnL of every closing fill, oldest first."""
         conn = self.get_connection()
         rows = conn.execute(
-            "SELECT pnl FROM trades WHERE status = 'closed' AND type = 'close' ORDER BY id").fetchall()
+            "SELECT pnl FROM trades WHERE status = 'closed' AND type IN ('close', 'reduce') ORDER BY id").fetchall()
         conn.close()
         return [r[0] or 0.0 for r in rows]
 

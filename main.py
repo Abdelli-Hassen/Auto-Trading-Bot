@@ -529,7 +529,7 @@ class TradingBot:
             for fill in self.account.set_signed_size(sym, target_units, price):
                 trades += 1
                 rule = f"Target {w:+.0%}"
-                kind = "close" if fill["action"] in ("close", "reduce") else "open"
+                kind = fill["action"]                      # open | add | reduce | close
                 self._record_fill(fill, kind, {"rule": rule})
                 direction = "long" if fill["side"] == "buy" else "short"
                 self._add_signal(sym, direction, fill["price"], rule)

@@ -48,9 +48,10 @@ export default function History() {
 
   // Compute stats
   const stats = useMemo(() => {
-    const closed = trades.filter(t => t.kind === 'close');
+    const exits = trades.filter(t => t.kind === 'close' || t.kind === 'reduce');   // every fill that realised profit/loss
+    const closed = trades.filter(t => t.kind === 'close');                         // fully closed trades only
     const wins = closed.filter(t => t.rawPnl > 0);
-    const totalPnl = closed.reduce((acc, t) => acc + (t.rawPnl || 0), 0);
+    const totalPnl = exits.reduce((acc, t) => acc + (t.rawPnl || 0), 0);
     return {
       total: trades.length,
       closed: closed.length,
@@ -189,7 +190,7 @@ export default function History() {
             <span className="font-mono text-[11px] font-bold text-white">{stats.total}</span>
           </div>
           <div className="flex items-center justify-between border-l border-[var(--color-surface-800)]/50 px-2">
-            <span className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] font-bold">Win Rate</span>
+            <span className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] font-bold" title="Fully closed trades that made money">Win Rate (closed trades)</span>
             <span className="font-mono text-[11px] font-bold text-[var(--color-gold-400)]">{stats.closed ? `${stats.winRate.toFixed(1)}%` : '—'}</span>
           </div>
           <div className="flex items-center justify-between border-l border-[var(--color-surface-800)]/50 px-2">

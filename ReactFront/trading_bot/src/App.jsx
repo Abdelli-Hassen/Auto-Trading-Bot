@@ -243,7 +243,7 @@ function App() {
       )}
 
       {/* Main Dynamic Workspace */}
-      <main className="relative z-10 flex-1 w-full px-4 lg:px-6 py-4 pb-6">
+      <main className="relative z-10 flex-1 w-full px-4 lg:px-6 pt-4 pb-24">
         <div className="max-w-[1920px] mx-auto w-full min-w-0">
           {activeTab === 'Trading'    && renderTradingWorkspace()}
           {activeTab === 'Analytics'  && <Analytics />}
