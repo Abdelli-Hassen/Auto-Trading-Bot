@@ -26,10 +26,10 @@ function Sparkline({ values, up }) {
   );
 }
 
-function Tile({ label, children, sub }) {
+function Tile({ label, children, sub, tip }) {
   return (
-    <div className={`${CARD} lg:col-span-2 px-4 py-3.5 flex flex-col justify-between min-h-[132px]`}>
-      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-surface-500)]">{label}</span>
+    <div title={tip} className={`${CARD} lg:col-span-2 px-4 py-3.5 flex flex-col justify-between min-h-[132px]`}>
+      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-surface-500)]">{label} {tip && <span className="opacity-50 normal-case">ⓘ</span>}</span>
       <div className="mt-1">{children}</div>
       <div className="text-[10px] text-[var(--color-surface-500)] font-mono leading-snug mt-1">{sub}</div>
     </div>
@@ -67,6 +67,10 @@ export default function KpiRibbon({ status, isConnected }) {
   const up = ret >= 0;
   const Trend = ret > 0 ? ArrowUpRight : ret < 0 ? ArrowDownRight : Minus;
   const winRate = daily.win_rate;
+  const winners = positions.filter(p => (p.unrealized_pnl || 0) > 0).length;
+  const fees = acct.fees_paid || 0;
+  const realised = acct.realised_gross ?? 0;
+  const deployed = longV + shortV;
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-12 gap-3">
@@ -86,15 +90,23 @@ export default function KpiRibbon({ status, isConnected }) {
         <Sparkline values={curve} up={up} />
       </div>
 
-      <Tile label="Total P&L" sub={`Realised ${signedMoney(daily.realized_pnl || 0)} · open ${signedMoney(unreal)}`}>
+      <Tile label="Total P&L"
+        tip="Everything you have made or lost since the account started: equity minus starting capital. It splits into profit already locked in, profit/loss still open on current positions, and trading fees."
+        sub={<>Locked in {signedMoney(realised)}<br />Open {signedMoney(unreal)} · fees {signedMoney(-fees)}</>}>
         <span className={`text-2xl font-heading font-bold tabular-nums ${pnlClass(totalPnl)}`}>{signedMoney(totalPnl)}</span>
       </Tile>
 
-      <Tile label="Today" sub={`${daily.trades || 0} trade${daily.trades === 1 ? '' : 's'} closed`}>
+      <Tile label="Today"
+        tip="Change in account value since midnight, including profit/loss on positions that are still open."
+        sub={`since midnight · ${daily.trades || 0} trade${daily.trades === 1 ? '' : 's'} closed`}>
         <span className={`text-2xl font-heading font-bold tabular-nums ${pnlClass(daily.pnl || 0)}`}>{signedMoney(daily.pnl || 0)}</span>
       </Tile>
 
-      <Tile label="Win rate" sub={daily.total_trades ? `${daily.wins}W · ${daily.losses}L · ${daily.total_trades} closed` : 'No closed trades yet'}>
+      <Tile label="Win rate"
+        tip="Share of CLOSED trades that made money. It stays — until the first trade is closed. Open positions are not counted yet."
+        sub={daily.total_trades
+          ? `${daily.wins}W · ${daily.losses}L · ${daily.total_trades} closed`
+          : <>No closed trades yet<br />{positions.length ? `${winners} of ${positions.length} open positions in profit` : 'No open positions'}</>}>
         <div className="flex items-center gap-3">
           <span className={`text-2xl font-heading font-bold tabular-nums ${winRate == null ? 'text-[var(--color-surface-600)]' : winRate >= 0.5 ? 'text-[var(--color-profit)]' : 'text-[var(--color-gold-400)]'}`}>
             {winRate == null ? '—' : pct(winRate, 0)}
@@ -107,7 +119,9 @@ export default function KpiRibbon({ status, isConnected }) {
         </div>
       </Tile>
 
-      <Tile label="Exposure" sub={`${positions.length} position${positions.length === 1 ? '' : 's'} · ${shortV > longV ? 'net short' : longV > shortV ? 'net long' : 'flat'}`}>
+      <Tile label="Exposure"
+        tip="How much of your account is currently in the market. 79% = 79% of your account value is invested in positions; the rest is cash. Net short means the bot is betting on prices falling, net long on rising."
+        sub={<>{money(deployed, 0)} in {positions.length} position{positions.length === 1 ? '' : 's'}<br />{shortV > longV ? 'net short (betting on falls)' : longV > shortV ? 'net long (betting on rises)' : 'flat'}</>}>
         <div className="flex items-center gap-3">
           <span className="text-2xl font-heading font-bold tabular-nums text-white">{pct(gross, 0)}</span>
           <div className="flex-1 h-1.5 rounded-full bg-[var(--color-surface-800)] overflow-hidden flex">

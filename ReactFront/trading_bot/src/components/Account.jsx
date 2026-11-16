@@ -88,7 +88,7 @@ export default function Account({ data, onOpenSettings, onNotice }) {
           sub={`Worst ${pct(risk.max_drawdown_reached, 2)} · peak ${money(risk.peak_equity, 0)}`} />
         <Stat icon={Gauge} label="Sharpe (live)" value={(risk.sharpe_ratio ?? 0).toFixed(2)} sub="From recorded equity" />
         <Stat icon={Award} label="Profit factor" value={risk.profit_factor ? `${risk.profit_factor.toFixed(2)}x` : '—'} sub="Gross profit / gross loss" />
-        <Stat icon={Wallet} label="Realised P&L" value={signedMoney(daily.realized_pnl || 0)} cls={pnlClass(daily.realized_pnl || 0)} sub={`Today ${signedMoney(daily.pnl || 0)}`} />
+        <Stat icon={Wallet} label="Locked-in profit" value={signedMoney(acct.realised_gross || 0)} cls={pnlClass(acct.realised_gross || 0)} sub={`Today ${signedMoney(daily.pnl || 0)} · open ${signedMoney(acct.open_pnl || 0)}`} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

@@ -399,3 +399,19 @@ def test_fixed_amount_per_trade(storage, fetcher, monkeypatch):
     monkeypatch.setattr(config, "TRADE_SIZE_USD", 1e7)                       # larger than the budget -> scaled down
     bot._rebalance(prices)
     assert bot.account.exposure() <= bot.trading_base() * 1.001
+
+
+def test_pnl_breakdown_adds_up_and_today_includes_open(storage, fetcher):
+    bot = make_bot(storage, fetcher)
+    bot.account.set_long_size("BTC/USDT", 10.0, 100.0)
+    bot.account.mark({"BTC/USDT": 105.0})
+    bot.account.set_long_size("BTC/USDT", 5.0, 105.0)            # lock in part of the gain
+    bot.account.mark({"BTC/USDT": 103.0})
+    st = bot.get_status()
+    acct = st["account"]
+    total = st["risk_metrics"]["total_pnl"]
+    # locked-in + open - fees == total P&L
+    assert acct["realised_gross"] + acct["open_pnl"] - acct["fees_paid"] == pytest.approx(total)
+    assert st["daily_stats"]["pnl"] == pytest.approx(total)      # nothing else happened today
+    bot.deposit(1000)
+    assert bot.get_status()["daily_stats"]["pnl"] == pytest.approx(total)    # deposits are not profit

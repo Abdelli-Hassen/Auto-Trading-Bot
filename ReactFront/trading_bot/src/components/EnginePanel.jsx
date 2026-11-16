@@ -41,7 +41,7 @@ export default function EnginePanel({ status, isConnected, snapshotAt, onStart, 
   const dailyUsed = Math.min(risk.daily_limit_used || 0, 1);
 
   return (
-    <div className="flex flex-col gap-3 lg:sticky lg:top-4">
+    <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1 engine-scroll">
       <div className={`${CARD} p-5 flex flex-col gap-4`}>
         {/* header */}
         <div className="flex items-center justify-between">

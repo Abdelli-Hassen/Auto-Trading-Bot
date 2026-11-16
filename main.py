@@ -67,6 +67,7 @@ class TradingBot:
         self.started_at: Optional[str] = None
         self._restore_state()
         self._load_settings()
+        self._day_anchor()                 # fix today's starting equity as early as possible
 
     @property
     def portfolio_strategy(self) -> TrendMomentumStrategy:
@@ -447,6 +448,7 @@ class TradingBot:
             raise ValueError("Amount must be a positive number")
         self.account.cash += amount
         self.account.initial_capital += amount
+        self._shift_day_anchor(amount)
         self._after_funds_change("deposit", amount)
         return {"equity": self.account.equity()}
 
@@ -461,8 +463,13 @@ class TradingBot:
         self.account.cash -= amount
         self.account.initial_capital -= amount
         self.risk_manager.peak_adjust -= amount
+        self._shift_day_anchor(-amount)
         self._after_funds_change("withdrawal", amount)
         return {"equity": self.account.equity()}
+
+    def _shift_day_anchor(self, delta: float):
+        self._day_anchor()
+        self.settings["flows"]["day_anchor"]["equity"] += delta
 
     def _after_funds_change(self, kind: str, amount: float):
         config.INITIAL_CAPITAL = self.account.initial_capital          # P&L and loss limits use net deposits
@@ -708,6 +715,20 @@ class TradingBot:
         return {"closed": len(positions), "pnl": total}
 
     # ------------------------------------------------------------------ status
+    def _day_anchor(self) -> float:
+        """Equity at the start of today (deposits/withdrawals adjust it), so 'Today' is a true day P&L."""
+        today = datetime.now().date().isoformat()
+        flows = self.settings.setdefault("flows", {})
+        anchor = flows.get("day_anchor")
+        if not anchor or anchor.get("date") != today:
+            anchor = {"date": today, "equity": self.account.equity()}
+            flows["day_anchor"] = anchor
+            try:
+                self._persist_settings()
+            except Exception as e:
+                logger.warning(f"Could not persist day anchor: {e}")
+        return float(anchor["equity"])
+
     def _daily_stats(self) -> Dict:
         today = datetime.now().date().isoformat()
         todays = [t for t in self.pair_trades if t["time"][:10] == today]
@@ -715,7 +736,8 @@ class TradingBot:
         n = len(self.pair_trades)
         return {
             "trades": len(todays),
-            "pnl": sum(t["pnl"] for t in todays),
+            "pnl": self.account.equity() - self._day_anchor(),       # since midnight, incl. open positions
+            "closed_pnl": sum(t["pnl"] for t in todays),
             "win_rate": (wins / n) if n else None,      # None = no closed trades yet
             "wins": wins,
             "losses": n - wins,
@@ -760,6 +782,8 @@ class TradingBot:
                         "trade_size_usd": config.TRADE_SIZE_USD,
                         "free": self.free_funds(), "deployed": self.account.exposure()},
             'account': {"cash": self.account.cash, "equity": self.account.equity(),
+                        "realised_gross": self.account.cash - self.account.initial_capital + self.account.fees_paid,
+                        "open_pnl": self.account.unrealized_pnl(),
                         "fees_paid": self.account.fees_paid,
                         "initial_capital": self.account.initial_capital},
         }
