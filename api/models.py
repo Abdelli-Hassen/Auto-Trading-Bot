@@ -42,6 +42,7 @@ class BotStatusResponse(BaseModel):
     account: Dict[str, Any] = {}
     last_cycle: Optional[str] = None
     strategy: str = ""
+    feed_ok: bool = True
     capital: Dict[str, Any] = {}
     started_at: Optional[str] = None
     strategy_id: str = ""

@@ -228,6 +228,12 @@ function App() {
         ))}
       </nav>
 
+      {data?.status && data.status.feed_ok === false && (
+        <div className="relative z-20 shrink-0 bg-[var(--color-loss-dim)] border-b border-[var(--color-loss)]/30 text-[var(--color-loss)] px-4 py-2 text-xs font-medium text-center">
+          Price feed offline — cannot reach the exchange. Trading is paused and your positions are untouched until it reconnects.
+        </div>
+      )}
+
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-[var(--color-loss-dim)] border border-[var(--color-loss)]/30 text-[var(--color-loss)] px-6 py-3 rounded-xl text-sm font-medium shadow-xl shadow-[var(--color-loss)]/10 animate-fade-in-up flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-[var(--color-loss)]" />

@@ -62,6 +62,8 @@ class PaperAccount:
             pos = self.positions.get(symbol)
             if not pos or price <= 0:
                 return None
+            if pos.get("mark_price") and abs(price / pos["mark_price"] - 1) > 0.5:
+                return None        # bad data, never a fill
             order_side = "sell" if pos["side"] == "long" else "buy"
             fill = self._fill_price(price, order_side)
             direction = 1 if pos["side"] == "long" else -1
@@ -106,6 +108,8 @@ class PaperAccount:
         if price <= 0 or target_size < 0:
             return None
         pos = self.positions.get(symbol)
+        if pos and pos.get("mark_price") and abs(price / pos["mark_price"] - 1) > 0.5:
+            return None        # a price 50% away from the last mark is bad data, never a fill
         cur = pos["size"] if pos else 0.0
         delta = target_size - cur
         if abs(delta) < 1e-12:

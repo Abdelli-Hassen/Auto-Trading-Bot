@@ -46,7 +46,9 @@ TIMEFRAME = _env("TIMEFRAME", "1m")
 # bot stays fully usable offline.
 # Set FORCE_SYNTHETIC=true to always use the simulated feed (demo / offline).
 FORCE_SYNTHETIC = _env("FORCE_SYNTHETIC", False, bool)
-ALLOW_SYNTHETIC_FALLBACK = _env("ALLOW_SYNTHETIC_FALLBACK", True, bool)
+# DANGER: the simulated feed uses made-up prices. Falling back to it while holding positions opened at real
+# prices corrupts the account (this wiped a paper account overnight). Keep this False; use FORCE_SYNTHETIC for demos.
+ALLOW_SYNTHETIC_FALLBACK = _env("ALLOW_SYNTHETIC_FALLBACK", False, bool)
 
 # --- Paper account ----------------------------------------------------------
 INITIAL_CAPITAL = _env("INITIAL_CAPITAL", 10000.0, float)

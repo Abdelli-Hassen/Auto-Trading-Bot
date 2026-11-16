@@ -87,7 +87,7 @@ class TradingBot:
         self.storage.save_state(STATE_KEY, {
             "cash": a.cash, "positions": a.positions, "fees_paid": a.fees_paid,
             "realized_pnl": a.realized_pnl, "pair_trades": self.pair_trades[-500:],
-            "recent_signals": self.recent_signals[:10],
+            "recent_signals": self.recent_signals[:10], "feed_kind": self._feed_kind(),
         })
 
     def _restore_state(self):
@@ -105,7 +105,49 @@ class TradingBot:
         a.realized_pnl = float(st.get("realized_pnl", 0.0))
         self.pair_trades = st.get("pair_trades", [])
         self.recent_signals = st.get("recent_signals", [])
+        self._saved_feed_kind = st.get("feed_kind")
         logger.info(f"Restored paper account: equity={a.equity():,.2f}, positions={len(a.positions)}")
+
+    # ------------------------------------------------------- data safety
+    @staticmethod
+    def _feed_kind() -> str:
+        return "synthetic" if config.FORCE_SYNTHETIC else "exchange"
+
+    def _sane_prices(self, prices: Dict[str, float]) -> Dict[str, float]:
+        """Drop any price that jumped more than 25% from the last known one (bad data, never a real move)."""
+        last = getattr(self, "_last_prices", None)
+        if last is None:
+            last = self._last_prices = {}
+            self._reject_count = {}
+        good = {}
+        for sym, p in prices.items():
+            ref = self.account.positions[sym]["mark_price"] if sym in self.account.positions else last.get(sym)
+            if ref and abs(p / ref - 1) > 0.25:
+                n = self._reject_count[sym] = self._reject_count.get(sym, 0) + 1
+                if n == 1:
+                    send_alert(f"Ignored suspicious {sym} price {p:g} (last {ref:g})", "WARNING")
+                if n < 20 or self.data_fetcher.data_source != "exchange":
+                    continue            # after ~5 minutes of consistent real data we accept a genuine gap
+            self._reject_count[sym] = 0
+            good[sym] = p
+            last[sym] = p
+        return good
+
+    def start_blockers(self) -> Optional[str]:
+        """Reason the bot must not start right now (None = fine)."""
+        equity = self.account.equity()
+        if equity <= 0:
+            return f"Account equity is ${equity:,.2f}. Reset the paper account before trading."
+        if self.risk_manager.check_max_drawdown(equity):
+            dd = self.risk_manager.get_risk_metrics()["current_drawdown"]
+            return (f"Maximum drawdown reached ({dd:.0%} below peak, limit {config.MAX_DRAWDOWN:.0%}). "
+                    f"Reset the paper account, or raise the limit in Settings.")
+        if self.account.positions and getattr(self, "_saved_feed_kind", None) not in (None, self._feed_kind()):
+            return ("These positions were opened with a different price feed "
+                    f"({self._saved_feed_kind}). Reset the account or restart with the same feed.")
+        if not self.data_fetcher.feed_ok():
+            return "The price feed is offline (cannot reach the exchange). Check your internet connection."
+        return None
 
     # ---------------------------------------------------------------- lifecycle
     async def initialize(self):
@@ -334,6 +376,8 @@ class TradingBot:
 
     def describe(self) -> str:
         """One-sentence plain-English description of what the bot is doing / thinking."""
+        if not self.data_fetcher.feed_ok():
+            return "Price feed offline - trading is paused and your positions are untouched until it reconnects."
         if self.risk_manager.halted_reason:
             return f"Entries blocked: {self.risk_manager.halted_reason}."
         if self.portfolio_mode:
@@ -403,7 +447,18 @@ class TradingBot:
             tickers = await asyncio.gather(
                 *(asyncio.to_thread(self.data_fetcher.fetch_ticker, s) for s in strat.symbols))
             prices = {s: float(t.get("last") or 0) for s, t in zip(strat.symbols, tickers) if t}
-            prices = {s: p for s, p in prices.items() if p > 0}
+            prices = self._sane_prices({s: p for s, p in prices.items() if p > 0})
+            needed = set(self.account.positions) | set(self.target_weights)
+            if not self.data_fetcher.feed_ok() or not needed.issubset(prices):
+                # never trade, mark or liquidate on missing/partial data: wait for the feed to come back
+                if not getattr(self, "_feed_alerted", False):
+                    send_alert("Price feed unavailable - trading paused, positions untouched", "WARNING")
+                    self._feed_alerted = True
+                self.last_cycle = datetime.now().isoformat()
+                return
+            if getattr(self, "_feed_alerted", False):
+                send_alert("Price feed is back - trading resumed", "INFO")
+                self._feed_alerted = False
             self.account.mark(prices)
 
             if self._needs_new_bar():
@@ -701,8 +756,10 @@ class TradingBot:
         total = 0.0
         entry_side = self._spread_position()
         for pos in positions:
-            fill = self.broker.close_position(
-                pos["symbol"], self.broker.last_price(pos["symbol"]) or pos["mark_price"], "liquidate")
+            px = self.broker.last_price(pos["symbol"])
+            if not px or abs(px / pos["mark_price"] - 1) > 0.25:
+                px = pos["mark_price"]                 # never liquidate on a bad price
+            fill = self.broker.close_position(pos["symbol"], px, "liquidate")
             if fill:
                 total += fill["pnl"]
                 self._record_fill(fill, "close", {"rule": "Exit: liquidate"})
@@ -808,6 +865,7 @@ class TradingBot:
             'running': self.running,
             'mode': 'paper',
             'data_source': self.data_fetcher.data_source,
+            'feed_ok': self.data_fetcher.feed_ok(),
             'timestamp': datetime.now().isoformat(),
             'last_cycle': self.last_cycle,
             'started_at': self.started_at if self.running else None,

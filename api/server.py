@@ -125,6 +125,9 @@ async def start_bot(req: StartRequest):
     global bot_task
     if bot_instance.running:
         return {"status": "error", "message": "Bot is already running"}
+    blocker = bot_instance.start_blockers() if req.mode == "live" else None
+    if blocker:
+        return {"status": "error", "message": blocker}
     if req.mode == "live":
         bot_task = asyncio.create_task(bot_instance.run_live_mode())
         return {"status": "success", "message": "Paper trading started"}
@@ -349,6 +352,9 @@ async def start_strategy(sid: str):
         return {"status": "error", "message": str(e)}
     if bot_instance.running:
         return {"status": "error", "message": "Already running"}
+    blocker = bot_instance.start_blockers()
+    if blocker:
+        return {"status": "error", "message": blocker}
     bot_task = asyncio.create_task(bot_instance.run_live_mode())
     return {"status": "success", "message": f"{STRATEGY_META[sid]['name']} started"}
 

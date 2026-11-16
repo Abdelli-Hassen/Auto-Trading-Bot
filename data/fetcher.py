@@ -31,8 +31,20 @@ class DataFetcher:
             return True
         return config.ALLOW_SYNTHETIC_FALLBACK and time.monotonic() < self._offline_until
 
+    def _blocked(self) -> bool:
+        """Offline with no fallback: skip the exchange for a few seconds instead of hammering it."""
+        return (not config.ALLOW_SYNTHETIC_FALLBACK and not config.FORCE_SYNTHETIC
+                and self.data_source == "offline" and time.monotonic() < self._offline_until)
+
+    def feed_ok(self) -> bool:
+        return self.data_source != "offline"
+
     def _mark_offline(self, err: Exception):
         if not config.ALLOW_SYNTHETIC_FALLBACK:
+            if self.data_source != "offline":
+                logger.error(f"Exchange unreachable ({str(err)[:80]}); price feed OFFLINE - trading is paused")
+            self.data_source = "offline"
+            self._offline_until = time.monotonic() + 15
             return
         if self.data_source != "synthetic":
             logger.warning(f"Exchange unreachable ({str(err)[:80]}); using simulated price feed")
@@ -54,6 +66,8 @@ class DataFetcher:
     
     def fetch_ohlcv(self, symbol: str, timeframe: str = config.TIMEFRAME, 
                      limit: int = 100, since: Optional[int] = None) -> pd.DataFrame:
+        if self._blocked():
+            return pd.DataFrame()
         if not self._use_synthetic():
             try:
                 ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit, since=since)
@@ -72,6 +86,8 @@ class DataFetcher:
         return pd.DataFrame()
     
     def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict:
+        if self._blocked():
+            return {'bids': [], 'asks': []}
         if not self._use_synthetic():
             try:
                 return self.exchange.fetch_order_book(symbol, limit)
@@ -83,6 +99,8 @@ class DataFetcher:
         return {'bids': [], 'asks': []}
     
     def fetch_ticker(self, symbol: str) -> Dict:
+        if self._blocked():
+            return {}
         if not self._use_synthetic():
             try:
                 ticker = self.exchange.fetch_ticker(symbol)

@@ -442,3 +442,70 @@ def test_readiness_is_honest_for_a_new_account(storage, fetcher):
     r2 = bot.readiness()
     assert not next(c for c in r2["checks"] if c["key"] == "time")["pass"]
     assert r2["ready"] is False
+
+
+# ------------------------------------------------ the overnight crash: bad prices must never touch the account
+def test_exchange_outage_never_falls_back_to_fake_prices(monkeypatch):
+    from data.fetcher import DataFetcher
+    monkeypatch.setattr(config, "ALLOW_SYNTHETIC_FALLBACK", False)
+    monkeypatch.setattr(config, "FORCE_SYNTHETIC", False)
+    f = DataFetcher()
+
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+    monkeypatch.setattr(f.exchange, "fetch_ticker", boom)
+    monkeypatch.setattr(f.exchange, "fetch_ohlcv", boom)
+    assert f.fetch_ticker("DOGE/USDT") == {}                 # no invented $103 DOGE
+    assert f.fetch_ohlcv("DOGE/USDT").empty
+    assert f.data_source == "offline" and not f.feed_ok()
+    assert f.fetch_ticker("BTC/USDT") == {}                  # stays blocked, doesn't hammer the exchange
+
+
+def test_outage_with_open_positions_changes_nothing(storage, monkeypatch):
+    from data.fetcher import DataFetcher
+    monkeypatch.setattr(config, "ALLOW_SYNTHETIC_FALLBACK", False)
+    f = DataFetcher()
+    monkeypatch.setattr(f.exchange, "fetch_ticker", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(f.exchange, "fetch_ohlcv", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    bot = TradingBot(storage=storage, data_fetcher=f)
+    bot.strategy_id = "trend_momentum_ls"
+    bot.account.set_signed_size("DOGE/USDT", -30000.0, 0.0587)           # a real short opened at real prices
+    bot.account.mark({"DOGE/USDT": 0.0587})
+    before = (bot.account.cash, bot.account.equity(), dict(bot.account.positions["DOGE/USDT"]))
+    bot.target_weights = {s: 0.0 for s in bot.portfolio_strategy.symbols}
+    asyncio.run(bot._portfolio_cycle())
+    assert (bot.account.cash, bot.account.equity()) == pytest.approx(before[:2])
+    assert bot.account.positions["DOGE/USDT"]["mark_price"] == 0.0587    # not marked to garbage
+    assert not bot.get_status()["feed_ok"]
+    assert "offline" in bot.describe().lower()
+    assert "feed is offline" in (bot.start_blockers() or "")
+
+
+def test_price_sanity_filter_and_account_guard(storage, fetcher):
+    bot = make_bot(storage, fetcher)
+    bot.account.set_signed_size("DOGE/USDT", -1000.0, 0.06)
+    out = bot._sane_prices({"DOGE/USDT": 103.0, "ADA/USDT": 0.15})       # fake DOGE rejected, ADA fine
+    assert "DOGE/USDT" not in out and out["ADA/USDT"] == 0.15
+    assert bot.account.close_position("DOGE/USDT", 103.0) is None       # close path is guarded too
+    fills = bot.account.set_signed_size("DOGE/USDT", 0.0, 103.0)         # even a direct bad fill is refused
+    assert fills == [] and "DOGE/USDT" in bot.account.positions
+
+
+def test_start_is_blocked_with_a_reason_when_drawdown_breached(storage, fetcher):
+    bot = make_bot(storage, fetcher)
+    bot.account.cash -= config.INITIAL_CAPITAL * 0.5                     # simulate a 50% loss
+    reason = bot.start_blockers()
+    assert reason and "drawdown" in reason.lower()
+
+
+def test_repair_tool_finds_and_removes_corrupt_burst():
+    import sys
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
+    from tools.repair_account import find_corrupt, replay
+    rows = [(1, "DOGE/USDT", 0.0587, "2026-01-01T01:00:00"), (2, "DOGE/USDT", 0.0588, "2026-01-01T02:00:00"),
+            (3, "DOGE/USDT", 103.3, "2026-01-01T08:20:26"),            # fake price
+            (4, "BTC/USDT", 67275.0, "2026-01-01T08:20:27")]           # same burst, plausible number but fake
+    assert find_corrupt(rows) == [3, 4]
+    fills = [dict(symbol="DOGE/USDT", side="sell", amount=1000.0, price=0.0587 * 0.9999)]
+    acct = replay(fills, 10000.0, 0.0004, 0.0001)
+    assert acct.positions["DOGE/USDT"]["side"] == "short"
