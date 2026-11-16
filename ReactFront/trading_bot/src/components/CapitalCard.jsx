@@ -142,9 +142,65 @@ export default function CapitalCard({ capital, isConnected, onNotice }) {
         </div>
       </div>
 
+      {/* money to trade with (the main control) */}
+      <div className="rounded-xl border border-[var(--color-gold-500)]/25 bg-[var(--color-gold-500)]/[0.05] p-3.5">
+        <label className="text-[11px] uppercase tracking-wider text-[var(--color-gold-400)] font-bold">Trade with only…</label>
+        <p className="text-[10px] text-[var(--color-surface-500)] mt-0.5">The bot will never use more than this. The rest of your account stays untouched in cash.</p>
+        <div className="flex gap-2 mt-2.5">
+          <div className="relative flex-1">
+            <DollarSign size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-surface-500)]" />
+            <input type="number" min="0" step="any" placeholder="e.g. 200" value={usd} onChange={e => setUsd(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && applyUsd()}
+              className="w-full bg-[var(--color-surface-950)] border border-white/10 rounded-lg pl-8 pr-2 py-2 text-base font-mono text-white focus:outline-none focus:border-[var(--color-gold-500)]/60" />
+          </div>
+          <button onClick={applyUsd} disabled={busy || !isConnected}
+            className="px-4 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 bg-[var(--color-gold-600)] hover:bg-[var(--color-gold-500)] text-black">
+            {busy ? <Loader size={12} className="animate-spin" /> : capped ? 'Update' : 'Set'}
+          </button>
+          {capped && (
+            <button onClick={() => { setUsd(''); applyPct(100); }} disabled={busy} title="Remove the limit"
+              className="px-2.5 rounded-lg border border-white/10 text-[var(--color-surface-400)] hover:text-white cursor-pointer"><X size={13} /></button>
+          )}
+        </div>
+        <div className="grid grid-cols-4 gap-1.5 mt-2">
+          {[100, 200, 500, 1000].map(v => (
+            <button key={v} onClick={() => { setUsd(String(v)); setPctVal(100); save({ trade_budget_pct: 1, trade_budget_usd: v }, `Trading with only ${money(v, 0)}`); }}
+              disabled={busy || !isConnected}
+              className={`py-1.5 rounded-lg text-[11px] font-mono border cursor-pointer disabled:opacity-50 ${capped && capital.budget_usd === v ? 'bg-[var(--color-gold-500)]/15 border-[var(--color-gold-500)]/40 text-[var(--color-gold-400)]' : 'border-white/10 text-[var(--color-surface-400)] hover:text-white hover:border-white/20'}`}>
+              ${v.toLocaleString()}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2.5 text-[10px] leading-relaxed text-[var(--color-surface-400)]">
+          {capped
+            ? `Using ${money(capital.budget, 0)} of your ${money(capital.equity, 0)}. The other ${money(Math.max(capital.equity - capital.budget, 0), 0)} is not traded.`
+            : 'No limit set: the bot may use your whole account. Pick an amount to test with less.'}
+        </p>
+      </div>
+
+      {/* percentage */}
+      <div>
+        <div className="flex justify-between text-[10px] mb-1.5">
+          <span className="uppercase tracking-wider text-[var(--color-surface-500)]">Or use a share of the account</span>
+          <span className="font-mono text-white">{capped || fixedSize ? '—' : `${pctVal}%`}</span>
+        </div>
+        <input type="range" min="5" max="100" step="5" value={pctVal} disabled={busy || !isConnected}
+          onChange={e => { setPctVal(Number(e.target.value)); setUsd(''); }}
+          onMouseUp={() => applyPct(pctVal)} onTouchEnd={() => applyPct(pctVal)} onKeyUp={() => applyPct(pctVal)}
+          className="w-full accent-[var(--color-gold-500)] cursor-pointer" />
+        <div className="grid grid-cols-4 gap-1.5 mt-2">
+          {PRESETS.map(p => (
+            <button key={p} onClick={() => applyPct(p * 100)} disabled={busy || !isConnected}
+              className={`py-1.5 rounded-lg text-[11px] font-mono border cursor-pointer transition-colors disabled:opacity-50 ${!capped && pctVal === p * 100 ? 'bg-[var(--color-gold-500)]/15 border-[var(--color-gold-500)]/40 text-[var(--color-gold-400)]' : 'border-white/10 text-[var(--color-surface-400)] hover:text-white hover:border-white/20'}`}>
+              {p * 100}%
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* fixed amount per trade */}
-      <div className="rounded-xl border border-[var(--color-gold-500)]/20 bg-[var(--color-gold-500)]/[0.04] p-3">
-        <label className="text-[10px] uppercase tracking-wider text-[var(--color-gold-400)] font-bold">Amount per trade</label>
+      <div className="rounded-xl border border-white/10 p-3">
+        <label className="text-[10px] uppercase tracking-wider text-[var(--color-surface-400)] font-bold">Amount per position (optional)</label>
         <div className="flex gap-2 mt-1.5">
           <div className="relative flex-1">
             <DollarSign size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-surface-500)]" />
@@ -166,43 +222,6 @@ export default function CapitalCard({ capital, isConnected, onNotice }) {
             ? `Every position the bot opens uses exactly ${money(capital.trade_size_usd, 0)} (long or short), e.g. 3 signals = ${money(capital.trade_size_usd * 3, 0)} in play.`
             : 'Off: position sizes come from the strategy weights. Set e.g. 100 to put exactly $100 into each trade.'}
         </p>
-      </div>
-
-      {/* percentage */}
-      <div>
-        <div className="flex justify-between text-[10px] mb-1.5">
-          <span className="uppercase tracking-wider text-[var(--color-surface-500)]">Share of account</span>
-          <span className="font-mono text-white">{capped || fixedSize ? '—' : `${pctVal}%`}</span>
-        </div>
-        <input type="range" min="5" max="100" step="5" value={pctVal} disabled={busy || !isConnected}
-          onChange={e => { setPctVal(Number(e.target.value)); setUsd(''); }}
-          onMouseUp={() => applyPct(pctVal)} onTouchEnd={() => applyPct(pctVal)} onKeyUp={() => applyPct(pctVal)}
-          className="w-full accent-[var(--color-gold-500)] cursor-pointer" />
-        <div className="grid grid-cols-4 gap-1.5 mt-2">
-          {PRESETS.map(p => (
-            <button key={p} onClick={() => applyPct(p * 100)} disabled={busy || !isConnected}
-              className={`py-1.5 rounded-lg text-[11px] font-mono border cursor-pointer transition-colors disabled:opacity-50 ${!capped && pctVal === p * 100 ? 'bg-[var(--color-gold-500)]/15 border-[var(--color-gold-500)]/40 text-[var(--color-gold-400)]' : 'border-white/10 text-[var(--color-surface-400)] hover:text-white hover:border-white/20'}`}>
-              {p * 100}%
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* fixed dollar cap */}
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-[var(--color-surface-500)]">Or cap at a fixed amount</label>
-        <div className="flex gap-2 mt-1.5">
-          <div className="relative flex-1">
-            <DollarSign size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-surface-500)]" />
-            <input type="number" min="0" step="any" placeholder="e.g. 2000" value={usd} onChange={e => setUsd(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && applyUsd()}
-              className="w-full bg-[var(--color-surface-950)] border border-white/10 rounded-lg pl-7 pr-2 py-1.5 text-sm font-mono text-white focus:outline-none focus:border-[var(--color-gold-500)]/50" />
-          </div>
-          <button onClick={applyUsd} disabled={busy || !isConnected}
-            className={`px-3.5 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 border ${capped ? 'bg-[var(--color-gold-500)]/15 border-[var(--color-gold-500)]/40 text-[var(--color-gold-400)]' : 'border-white/10 text-[var(--color-surface-300)] hover:text-white hover:border-white/20'}`}>
-            {busy ? <Loader size={12} className="animate-spin" /> : capped ? 'Update' : 'Apply'}
-          </button>
-        </div>
       </div>
 
       <p className="text-[10px] leading-relaxed text-[var(--color-surface-500)]">
