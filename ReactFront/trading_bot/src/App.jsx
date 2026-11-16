@@ -129,7 +129,7 @@ function App() {
   );
 
   return (
-    <div className="h-dvh w-full max-w-full overflow-hidden bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans relative">
+    <div className="fixed inset-0 overflow-hidden bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans">
       {/* Ambient Glow */}
       <div className="fixed top-0 left-[-10%] lg:left-[20%] w-[400px] lg:w-[600px] h-[400px] lg:h-[600px] bg-[var(--color-gold-600)]/5 rounded-full blur-[100px] lg:blur-[120px] pointer-events-none" />
       <div className="fixed bottom-0 right-[-10%] lg:right-[10%] w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-[var(--color-profit)]/5 rounded-full blur-[80px] lg:blur-[100px] pointer-events-none" />
@@ -243,7 +243,7 @@ function App() {
       )}
 
       {/* Main Dynamic Workspace */}
-      <main id="app-scroll" className="relative z-10 flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 lg:px-6 pt-4 pb-10">
+      <main id="app-scroll" className="relative z-10 flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 lg:px-6 pt-4 pb-3">
         <div className="max-w-[1920px] mx-auto w-full min-w-0">
           {activeTab === 'Trading'    && renderTradingWorkspace()}
           {activeTab === 'Analytics'  && <Analytics />}
