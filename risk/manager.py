@@ -1,16 +1,26 @@
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
 import config
-from utils import setup_logger
 from data.storage import DataStorage
+from utils import setup_logger
 
 logger = setup_logger("RiskManager", "risk.log")
 
+
 class RiskManager:
-    def __init__(self, storage: DataStorage = None):
+    """
+    Position sizing, loss limits and drawdown protection.
+
+    `equity_provider` is a callable returning current account equity (the paper
+    account). Without one, the last stored equity snapshot is used.
+    """
+
+    def __init__(self, storage: DataStorage = None, equity_provider=None):
         self.storage = storage or DataStorage()
+        self.equity_provider = equity_provider
         self.daily_pnl = 0.0
         self.weekly_pnl = 0.0
         self.monthly_pnl = 0.0
@@ -18,236 +28,178 @@ class RiskManager:
         self.last_reset_daily = datetime.now().date()
         self.last_reset_weekly = datetime.now().date() - timedelta(days=datetime.now().weekday())
         self.last_reset_monthly = datetime.now().replace(day=1).date()
-        
-    def calculate_position_size(self, signal_price: float, stop_loss_price: float, 
-                               account_balance: float = None, risk_percent: float = None) -> float:
-        """
-        Calculate position size based on risk per trade and stop loss distance.
-        Formula: Position Size = (Account Balance * Risk %) / |Entry Price - Stop Loss Price|
-        """
+        self.halted_reason: Optional[str] = None
+        self.peak_adjust = 0.0      # shifts the equity peak when funds are deposited / withdrawn
+
+    # ---------------------------------------------------------------- equity
+    def current_equity(self) -> float:
+        if self.equity_provider:
+            return float(self.equity_provider())
+        return self.storage.get_portfolio_value()
+
+    def _get_peak_equity(self) -> float:
+        conn = self.storage.get_connection()
+        result = conn.execute("SELECT MAX(equity) FROM equity").fetchone()[0]
+        conn.close()
+        return max((result or 0.0) + self.peak_adjust, config.INITIAL_CAPITAL)
+
+    # ---------------------------------------------------------------- sizing
+    def calculate_position_size(self, signal_price: float, stop_loss_price: float,
+                                account_balance: float = None, risk_percent: float = None) -> float:
+        """Units such that hitting the stop loses `risk_percent` of the account, capped by max size."""
         if account_balance is None:
-            account_balance = self.storage.get_portfolio_value()
+            account_balance = self.current_equity()
         if risk_percent is None:
             risk_percent = config.RISK_PER_TRADE
-        
-        risk_amount = account_balance * risk_percent
         price_diff = abs(signal_price - stop_loss_price)
-        
-        if price_diff == 0:
-            logger.warning("Stop loss price equals entry price, using minimum position size")
+        if price_diff == 0 or signal_price <= 0:
             return 0.0
-            
-        position_size = risk_amount / price_diff
-        
-        # Apply maximum position size limit
-        max_position_value = account_balance * config.MAX_POSITION_SIZE
-        max_position_size = max_position_value / signal_price if signal_price > 0 else 0
-        
-        if position_size > max_position_size:
-            logger.warning(f"Position size {position_size:.6f} exceeds max {max_position_size:.6f}, capping")
-            position_size = max_position_size
-        
-        return position_size
-    
-    def calculate_stop_loss(self, entry_price: float, side: str, atr: float = None, 
-                           percent: float = None) -> float:
-        """
-        Calculate stop loss price based on ATR or fixed percentage.
-        For long: stop = entry - (ATR * multiplier) or entry * (1 - percent)
-        For short: stop = entry + (ATR * multiplier) or entry * (1 + percent)
-        """
-        if percent is None:
-            percent = 0.02  # Default 2% stop loss
-        
-        if side.lower() == 'long':
-            stop_loss = entry_price * (1 - percent)
-        else:  # short
-            stop_loss = entry_price * (1 + percent)
-        
-        return stop_loss
-    
-    def calculate_take_profit(self, entry_price: float, side: str, 
-                             risk_reward_ratio: float = 2.0, 
-                             stop_loss_price: float = None) -> float:
-        """
-        Calculate take profit price based on risk-reward ratio.
-        """
+        size = account_balance * risk_percent / price_diff
+        max_size = account_balance * config.MAX_POSITION_SIZE / signal_price
+        return min(size, max_size)
+
+    def pair_notional(self, equity: float = None) -> float:
+        """Dollar value allocated to each leg of a dollar-neutral pair trade."""
+        equity = self.current_equity() if equity is None else equity
+        return max(equity, 0.0) * config.MAX_POSITION_SIZE
+
+    def calculate_stop_loss(self, entry_price: float, side: str, atr: float = None,
+                            percent: float = None) -> float:
+        percent = 0.02 if percent is None else percent
+        return entry_price * (1 - percent) if side.lower() == 'long' else entry_price * (1 + percent)
+
+    def calculate_take_profit(self, entry_price: float, side: str, risk_reward_ratio: float = 2.0,
+                              stop_loss_price: float = None) -> float:
         if stop_loss_price is None:
-            # Default to 2% stop loss if not provided
             stop_loss_price = self.calculate_stop_loss(entry_price, side)
-        
-        risk = abs(entry_price - stop_loss_price)
-        reward = risk * risk_reward_ratio
-        
-        if side.lower() == 'long':
-            take_profit = entry_price + reward
-        else:  # short
-            take_profit = entry_price - reward
-        
-        return take_profit
-    
-    def check_daily_loss_limit(self, current_pnl: float) -> bool:
-        """
-        Check if daily loss limit has been breached.
-        Returns True if trading should be halted.
-        """
+        reward = abs(entry_price - stop_loss_price) * risk_reward_ratio
+        return entry_price + reward if side.lower() == 'long' else entry_price - reward
+
+    # ------------------------------------------------------- PnL accounting
+    def _roll_periods(self):
         today = datetime.now().date()
         if today != self.last_reset_daily:
-            self.daily_pnl = 0.0
-            self.last_reset_daily = today
-        
-        self.daily_pnl += current_pnl
-        loss_limit = -config.INITIAL_CAPITAL * config.MAX_DAILY_LOSS
-        
-        if self.daily_pnl <= loss_limit:
-            logger.warning(f"Daily loss limit breached: {self.daily_pnl:.2f} <= {loss_limit:.2f}")
-            return True
-        return False
-    
-    def check_weekly_loss_limit(self, current_pnl: float) -> bool:
-        """
-        Check if weekly loss limit has been breached.
-        Returns True if trading should be halted.
-        """
-        today = datetime.now().date()
+            self.reset_daily_pnl()
         week_start = today - timedelta(days=today.weekday())
         if week_start != self.last_reset_weekly:
-            self.weekly_pnl = 0.0
-            self.last_reset_weekly = week_start
-        
+            self.reset_weekly_pnl()
+        if today.replace(day=1) != self.last_reset_monthly:
+            self.reset_monthly_pnl()
+
+    def record_pnl(self, pnl: float):
+        """Feed realised PnL of a closed trade into the loss-limit counters."""
+        self._roll_periods()
+        self.daily_pnl += pnl
+        self.weekly_pnl += pnl
+        self.monthly_pnl += pnl
+
+    def check_daily_loss_limit(self, current_pnl: float = 0.0) -> bool:
+        self._roll_periods()
+        self.daily_pnl += current_pnl
+        return self.daily_pnl <= -config.INITIAL_CAPITAL * config.MAX_DAILY_LOSS
+
+    def check_weekly_loss_limit(self, current_pnl: float = 0.0) -> bool:
+        self._roll_periods()
         self.weekly_pnl += current_pnl
-        loss_limit = -config.INITIAL_CAPITAL * config.MAX_WEEKLY_LOSS
-        
-        if self.weekly_pnl <= loss_limit:
-            logger.warning(f"Weekly loss limit breached: {self.weekly_pnl:.2f} <= {loss_limit:.2f}")
-            return True
-        return False
-    
-    def check_monthly_loss_limit(self, current_pnl: float) -> bool:
-        """
-        Check if monthly loss limit has been breached.
-        Returns True if trading should be halted.
-        """
-        today = datetime.now().date()
-        month_start = today.replace(day=1)
-        if month_start != self.last_reset_monthly:
-            self.monthly_pnl = 0.0
-            self.last_reset_monthly = month_start
-        
+        return self.weekly_pnl <= -config.INITIAL_CAPITAL * config.MAX_WEEKLY_LOSS
+
+    def check_monthly_loss_limit(self, current_pnl: float = 0.0) -> bool:
+        self._roll_periods()
         self.monthly_pnl += current_pnl
-        loss_limit = -config.INITIAL_CAPITAL * config.MAX_MONTHLY_LOSS
-        
-        if self.monthly_pnl <= loss_limit:
-            logger.warning(f"Monthly loss limit breached: {self.monthly_pnl:.2f} <= {loss_limit:.2f}")
-            return True
-        return False
-    
+        return self.monthly_pnl <= -config.INITIAL_CAPITAL * config.MAX_MONTHLY_LOSS
+
     def check_max_drawdown(self, current_equity: float) -> bool:
-        """
-        Check if maximum drawdown has been breached.
-        Returns True if trading should be halted.
-        """
-        peak_equity = self._get_peak_equity()
-        if peak_equity == 0:
-            peak_equity = config.INITIAL_CAPITAL
-        
-        drawdown = (peak_equity - current_equity) / peak_equity
+        peak = max(self._get_peak_equity(), current_equity)
+        drawdown = (peak - current_equity) / peak if peak else 0.0
         self.max_drawdown_reached = max(self.max_drawdown_reached, drawdown)
-        
-        if drawdown >= config.MAX_DRAWDOWN:
-            logger.warning(f"Max drawdown breached: {drawdown:.2%} >= {config.MAX_DRAWDOWN:.2%}")
-            return True
-        return False
-    
-    def _get_peak_equity(self) -> float:
-        """Get the peak equity from storage."""
-        conn = self.storage.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT MAX(equity) FROM equity')
-        result = cursor.fetchone()[0]
-        conn.close()
-        return result if result else config.INITIAL_CAPITAL
-    
+        return drawdown >= config.MAX_DRAWDOWN
+
     def check_position_limits(self, current_positions: List[Dict]) -> Tuple[bool, str]:
-        """
-        Check if we have exceeded maximum number of positions or position size limits.
-        Returns (is_ok, reason)
-        """
         if len(current_positions) >= config.MAX_POSITIONS:
             return False, f"Maximum positions ({config.MAX_POSITIONS}) reached"
-        
-        total_exposure = 0.0
-        account_balance = self.storage.get_portfolio_value()
-        
-        for pos in current_positions:
-            position_value = pos.get('size', 0) * pos.get('mark_price', 0)
-            total_exposure += position_value
-            
-            # Check individual position size
-            max_position_value = account_balance * config.MAX_POSITION_SIZE
-            if position_value > max_position_value:
-                return False, f"Position size exceeds maximum allowed: {position_value:.2f} > {max_position_value:.2f}"
-        
-        # Check total exposure
-        max_total_exposure = account_balance * (config.MAX_POSITION_SIZE * config.MAX_POSITIONS)
-        if total_exposure > max_total_exposure:
-            return False, f"Total exposure exceeds maximum allowed: {total_exposure:.2f} > {max_total_exposure:.2f}"
-        
         return True, ""
-    
+
     def can_open_new_position(self, symbol: str, current_positions: List[Dict]) -> Tuple[bool, str]:
-        """
-        Determine if we can open a new position based on all risk checks.
-        """
-        # Check if we're already in a losing streak that should halt trading
-        if self.check_daily_loss_limit(0) or self.check_weekly_loss_limit(0) or self.check_monthly_loss_limit(0):
-            return False, "Loss limit breached"
-        
-        # Check current equity drawdown
-        current_equity = self.storage.get_portfolio_value()
-        if self.check_max_drawdown(current_equity):
+        """All pre-trade risk checks. Returns (allowed, reason)."""
+        if self.check_daily_loss_limit(0):
+            return False, "Daily loss limit breached"
+        if self.check_weekly_loss_limit(0):
+            return False, "Weekly loss limit breached"
+        if self.check_monthly_loss_limit(0):
+            return False, "Monthly loss limit breached"
+        if self.check_max_drawdown(self.current_equity()):
             return False, "Maximum drawdown breached"
-        
-        # Check position limits
-        is_ok, reason = self.check_position_limits(current_positions)
-        if not is_ok:
-            return False, reason
-        
-        # Check if we already have a position in this symbol (optional: allow multiple)
-        # For now, we'll allow only one position per symbol to keep it simple
+        # a pair needs room for two legs
+        if len(current_positions) + 2 > max(config.MAX_POSITIONS, 2):
+            return False, f"Maximum positions ({config.MAX_POSITIONS}) reached"
         for pos in current_positions:
             if pos.get('symbol') == symbol:
                 return False, f"Already have an open position in {symbol}"
-        
         return True, ""
-    
+
+    # --------------------------------------------------------------- metrics
     def get_risk_metrics(self) -> Dict:
-        """Get current risk metrics for monitoring."""
-        current_equity = self.storage.get_portfolio_value()
-        peak_equity = self._get_peak_equity()
-        current_drawdown = (peak_equity - current_equity) / peak_equity if peak_equity > 0 else 0
-        
+        self._roll_periods()
+        equity = self.current_equity()
+        peak = max(self._get_peak_equity(), equity)
+        drawdown = (peak - equity) / peak if peak > 0 else 0.0
+        self.max_drawdown_reached = max(self.max_drawdown_reached, drawdown)
+
+        series = self.storage.get_equity_series()
+        sharpe = 0.0
+        if len(series) > 3:
+            arr = np.array(series, dtype=float)
+            rets = np.diff(arr) / np.where(arr[:-1] == 0, np.nan, arr[:-1])
+            rets = rets[~np.isnan(rets)]
+            if len(rets) > 2 and rets.std() > 0:
+                # samples are ~cycle-spaced: annualise by samples per year
+                per_year = (365 * 24 * 3600) / max(config.CYCLE_SECONDS, 1)
+                sharpe = float(rets.mean() / rets.std() * np.sqrt(per_year))
+                sharpe = float(np.clip(sharpe, -99, 99))
+
+        pnls = self.storage.get_trade_pnls()
+        wins = sum(p for p in pnls if p > 0)
+        losses = abs(sum(p for p in pnls if p < 0))
+        profit_factor = wins / losses if losses > 0 else (wins if wins > 0 else 0.0)
+
+        def used(pnl, limit):
+            return abs(pnl) / (config.INITIAL_CAPITAL * limit) if pnl < 0 else 0
+
         return {
-            'current_equity': current_equity,
-            'peak_equity': peak_equity,
-            'current_drawdown': current_drawdown,
+            'current_equity': equity,
+            'peak_equity': peak,
+            'current_drawdown': drawdown,
             'max_drawdown_reached': self.max_drawdown_reached,
+            'total_pnl': equity - config.INITIAL_CAPITAL,
             'daily_pnl': self.daily_pnl,
             'weekly_pnl': self.weekly_pnl,
             'monthly_pnl': self.monthly_pnl,
-            'daily_limit_used': abs(self.daily_pnl) / (config.INITIAL_CAPITAL * config.MAX_DAILY_LOSS) if self.daily_pnl < 0 else 0,
-            'weekly_limit_used': abs(self.weekly_pnl) / (config.INITIAL_CAPITAL * config.MAX_WEEKLY_LOSS) if self.weekly_pnl < 0 else 0,
-            'monthly_limit_used': abs(self.monthly_pnl) / (config.INITIAL_CAPITAL * config.MAX_MONTHLY_LOSS) if self.monthly_pnl < 0 else 0,
+            'daily_limit_used': used(self.daily_pnl, config.MAX_DAILY_LOSS),
+            'weekly_limit_used': used(self.weekly_pnl, config.MAX_WEEKLY_LOSS),
+            'monthly_limit_used': used(self.monthly_pnl, config.MAX_MONTHLY_LOSS),
+            'sharpe_ratio': sharpe,
+            'profit_factor': float(profit_factor),
+            'halted_reason': self.halted_reason,
+            'limits': {'daily': config.MAX_DAILY_LOSS, 'weekly': config.MAX_WEEKLY_LOSS,
+                       'monthly': config.MAX_MONTHLY_LOSS, 'drawdown': config.MAX_DRAWDOWN},
         }
-    
+
     def reset_daily_pnl(self):
         self.daily_pnl = 0.0
         self.last_reset_daily = datetime.now().date()
-    
+
     def reset_weekly_pnl(self):
         self.weekly_pnl = 0.0
         self.last_reset_weekly = datetime.now().date() - timedelta(days=datetime.now().weekday())
-    
+
     def reset_monthly_pnl(self):
         self.monthly_pnl = 0.0
         self.last_reset_monthly = datetime.now().replace(day=1).date()
+
+    def reset_all(self):
+        self.reset_daily_pnl()
+        self.reset_weekly_pnl()
+        self.reset_monthly_pnl()
+        self.max_drawdown_reached = 0.0
+        self.halted_reason = None
+        self.peak_adjust = 0.0

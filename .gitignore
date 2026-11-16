@@ -135,11 +135,11 @@ trading algo.docx
 Thumbs.db
 
 # Exchange data/cache
-*.json
 exchange_data/
+secrets.json
+api_keys.json
 
 # Secret keys and credentials
-config.py
 secrets.json
 api_keys.json
 
@@ -152,3 +152,10 @@ api_keys.json
 *.tar.gz
 *.rar
 *.7z
+# Runtime
+logs/
+node_modules/
+*.db-journal
+
+*.db
+.playwright-mcp/

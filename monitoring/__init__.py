@@ -11,6 +11,7 @@ class MonitoringSystem:
     def __init__(self):
         self.logger = setup_logger("Monitor", "monitor.log")
         self.alerts_sent = []
+        self._seq = 0
         self.metrics_history = []
         
     def log_trade(self, trade: Dict):
@@ -38,13 +39,16 @@ class MonitoringSystem:
         
     def send_alert(self, message: str, level: str = "INFO"):
         """Send an alert (could be email, Telegram, etc.)."""
+        self._seq += 1
         alert = {
+            'id': self._seq,
             'timestamp': datetime.now().isoformat(),
             'level': level,
             'message': message
         }
         
         self.alerts_sent.append(alert)
+        self.alerts_sent = self.alerts_sent[-300:]
         
         # Log the alert
         if level == "ERROR":

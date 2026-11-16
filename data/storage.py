@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import pandas as pd
 from pathlib import Path
@@ -48,7 +49,19 @@ class DataStorage:
                 fee REAL,
                 status TEXT,
                 order_id TEXT,
-                info TEXT
+                info TEXT,
+                pnl REAL DEFAULT 0
+            )
+        ''')
+        # migrate databases created before the pnl column existed
+        cursor.execute("PRAGMA table_info(trades)")
+        if 'pnl' not in [r[1] for r in cursor.fetchall()]:
+            cursor.execute("ALTER TABLE trades ADD COLUMN pnl REAL DEFAULT 0")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS state (
+                key TEXT PRIMARY KEY,
+                value TEXT
             )
         ''')
         
@@ -103,8 +116,8 @@ class DataStorage:
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO trades (timestamp, symbol, side, type, amount, price, cost, fee, status, order_id, info)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO trades (timestamp, symbol, side, type, amount, price, cost, fee, status, order_id, info, pnl)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             trade.get('timestamp'),
             trade.get('symbol'),
@@ -116,7 +129,8 @@ class DataStorage:
             trade.get('fee'),
             trade.get('status'),
             trade.get('order_id'),
-            str(trade.get('info', {}))
+            json.dumps(trade.get('info', {}), default=str),
+            trade.get('pnl', 0.0)
         ))
         
         conn.commit()
@@ -150,7 +164,7 @@ class DataStorage:
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO equity (timestamp, equity, balance)
+            INSERT OR REPLACE INTO equity (timestamp, equity, balance)
             VALUES (datetime('now'), ?, ?)
         ''', (equity, balance))
         
@@ -220,6 +234,45 @@ class DataStorage:
         
         return result[0] if result else config.INITIAL_CAPITAL
     
+    # ---- persistent key/value state (paper account survives restarts) ----
+    def save_state(self, key: str, value: dict):
+        conn = self.get_connection()
+        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+                     (key, json.dumps(value, default=str)))
+        conn.commit()
+        conn.close()
+
+    def load_state(self, key: str):
+        conn = self.get_connection()
+        row = conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+        conn.close()
+        return json.loads(row[0]) if row else None
+
+    def reset_all(self):
+        """Wipe trading history (used by the 'reset paper account' action)."""
+        conn = self.get_connection()
+        for table in ("trades", "positions", "equity"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM state WHERE key != 'settings'")
+        conn.commit()
+        conn.close()
+
+    def get_trade_pnls(self) -> list:
+        """Realised PnL of every closing fill, oldest first."""
+        conn = self.get_connection()
+        rows = conn.execute(
+            "SELECT pnl FROM trades WHERE status = 'closed' AND type = 'close' ORDER BY id").fetchall()
+        conn.close()
+        return [r[0] or 0.0 for r in rows]
+
+    def get_equity_series(self, limit: int = 2000) -> list:
+        conn = self.get_connection()
+        rows = conn.execute(
+            "SELECT equity FROM (SELECT id, equity FROM equity ORDER BY id DESC LIMIT ?) ORDER BY id",
+            (limit,)).fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+
     def clear_old_data(self, days: int = 30):
         conn = self.get_connection()
         cursor = conn.cursor()

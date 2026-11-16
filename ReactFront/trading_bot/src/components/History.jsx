@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronUp, Download, ChevronLeft, ChevronRight, Maximize2
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000';
+import { API_URL } from '../api';
 
 export default function History() {
   const [trades, setTrades] = useState([]);
@@ -27,12 +27,17 @@ export default function History() {
   const [expandedRow, setExpandedRow] = useState(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    fetch(`${API_URL}/api/test/history`, { signal: controller.signal })
-      .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
-      .then(d => { clearTimeout(timeout); setTrades(d); setLoading(false); })
-      .catch(() => { clearTimeout(timeout); setTrades([]); setLoading(false); });
+    const load = () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      fetch(`${API_URL}/api/test/history`, { signal: controller.signal })
+        .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
+        .then(d => { clearTimeout(timeout); setTrades(d); setError(null); setLoading(false); })
+        .catch(() => { clearTimeout(timeout); setError('Cannot reach the trading engine.'); setLoading(false); });
+    };
+    load();
+    const id = setInterval(load, 8000);       // new fills appear without a refresh
+    return () => clearInterval(id);
   }, []);
 
   // Compute unique symbols for filter dropdown
@@ -43,11 +48,12 @@ export default function History() {
 
   // Compute stats
   const stats = useMemo(() => {
-    const closed = trades.filter(t => t.status === 'closed');
-    const wins = closed.filter(t => t.rawCost > 0); // simplistic assumption for test
-    const totalPnl = closed.reduce((acc, t) => acc + (t.rawCost || 0), 0);
+    const closed = trades.filter(t => t.kind === 'close');
+    const wins = closed.filter(t => t.rawPnl > 0);
+    const totalPnl = closed.reduce((acc, t) => acc + (t.rawPnl || 0), 0);
     return {
       total: trades.length,
+      closed: closed.length,
       winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
       pnl: totalPnl
     };
@@ -106,9 +112,9 @@ export default function History() {
 
   const exportCSV = () => {
     if (processedTrades.length === 0) return;
-    const headers = ['ID', 'Time', 'Symbol', 'Side', 'Amount', 'Price', 'Fee', 'Cost (PnL)', 'Status'];
+    const headers = ['ID', 'Time', 'Symbol', 'Side', 'Amount', 'Price', 'Fee', 'Notional', 'Realised PnL', 'Status'];
     const rows = processedTrades.map(t => [
-      t.id, t.time, t.symbol, t.type, t.rawAmount, t.rawPrice, t.fee, t.rawCost, t.status
+      t.id, t.timestamp, t.symbol, t.type, t.rawAmount, t.rawPrice, t.fee, t.rawCost, t.rawPnl, t.status
     ]);
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -184,10 +190,10 @@ export default function History() {
           </div>
           <div className="flex items-center justify-between border-l border-[var(--color-surface-800)]/50 px-2">
             <span className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] font-bold">Win Rate</span>
-            <span className="font-mono text-[11px] font-bold text-[var(--color-gold-400)]">{stats.winRate.toFixed(1)}%</span>
+            <span className="font-mono text-[11px] font-bold text-[var(--color-gold-400)]">{stats.closed ? `${stats.winRate.toFixed(1)}%` : '—'}</span>
           </div>
           <div className="flex items-center justify-between border-l border-[var(--color-surface-800)]/50 px-2">
-            <span className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] font-bold">PnL</span>
+            <span className="text-[9px] uppercase tracking-wider text-[var(--color-surface-500)] font-bold">Realised PnL</span>
             <span className={`font-mono text-[11px] font-bold ${stats.pnl >= 0 ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'}`}>
               {stats.pnl >= 0 ? '+' : ''}${stats.pnl.toFixed(2)}
             </span>
@@ -219,8 +225,8 @@ export default function History() {
                 <th className="px-4 py-2 text-right cursor-pointer hover:bg-[var(--color-surface-800)]/50 transition-colors group" onClick={() => requestSort('rawPrice')}>
                   <span className="font-bold text-[var(--color-surface-500)] group-hover:text-white uppercase tracking-widest text-[9px]">Price <SortIcon col="rawPrice" /></span>
                 </th>
-                <th className="px-4 py-2 text-right cursor-pointer hover:bg-[var(--color-surface-800)]/50 transition-colors group" onClick={() => requestSort('rawCost')}>
-                  <span className="font-bold text-[var(--color-surface-500)] group-hover:text-white uppercase tracking-widest text-[9px]">P&L <SortIcon col="rawCost" /></span>
+                <th className="px-4 py-2 text-right cursor-pointer hover:bg-[var(--color-surface-800)]/50 transition-colors group" onClick={() => requestSort('rawPnl')}>
+                  <span className="font-bold text-[var(--color-surface-500)] group-hover:text-white uppercase tracking-widest text-[9px]">P&L <SortIcon col="rawPnl" /></span>
                 </th>
                 <th className="px-4 py-2 w-8"></th>
               </tr>
@@ -230,14 +236,14 @@ export default function History() {
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center">
                     <HistoryIcon size={24} className="mx-auto text-[var(--color-surface-700)] mb-2" />
-                    <p className="text-[var(--color-surface-500)] text-[10px] uppercase font-bold tracking-widest">No matching trades</p>
+                    <p className="text-[var(--color-surface-500)] text-[10px] uppercase font-bold tracking-widest">{trades.length === 0 ? 'No trades yet — they appear here as soon as the bot trades' : 'No matching trades'}</p>
                   </td>
                 </tr>
               ) : (
                 currentData.map((trade) => {
                   const isExpanded = expandedRow === trade.id;
                   const isBuy = trade.type === 'Buy';
-                  const isPositive = (trade.rawCost || 0) >= 0;
+                  const isPositive = (trade.rawPnl || 0) >= 0;
 
                   return (
                     <React.Fragment key={trade.id}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Maximize2, BarChart2, Activity } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts';
 import Tooltip from './Tooltip';
+import { API_URL } from '../api';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1H', '4H', '1D'];
 const TF_TO_API  = { '1m':'1m','5m':'5m','15m':'15m','30m':'30m','1H':'1h','4H':'4h','1D':'1d' };
@@ -23,30 +24,9 @@ const TV = {
   accent:  '#f59e0b',
 };
 
-/** Generates realistic-looking demo candles when API is offline */
-function makeDemoCandles(symbol, count = 150) {
-  const base = symbol.includes('BTC') ? 65000 : symbol.includes('ETH') ? 3200 : 150;
-  const now  = Math.floor(Date.now() / 1000);
-  const out  = [];
-  let price  = base;
-  for (let i = count; i >= 0; i--) {
-    const t = now - i * 60;
-    // smooth sinusoidal trend + noise
-    price += (Math.sin(i * 0.17) * 0.003 + (Math.random() - 0.5) * 0.004) * price;
-    price  = Math.max(price, base * 0.6);
-    const open   = price;
-    const change = (Math.random() - 0.5) * 0.005 * price;
-    const close  = price + change;
-    const high   = Math.max(open, close) + Math.random() * 0.002 * price;
-    const low    = Math.min(open, close) - Math.random() * 0.002 * price;
-    const volume = (Math.random() * 800 + 200);
-    out.push({ time: t, open, high, low, close, volume });
-    price = close;
-  }
-  return out;
-}
-
-export default function ChartWidget({ symbol, priceData, signals = [], prediction }) {
+export default function ChartWidget({ symbol, priceData, signals = [], prediction, positions = [], dataSource }) {
+  const [loadState, setLoadState] = useState('loading');
+  const linesR = useRef([]);
   const [tf, setTf]   = useState('1m');
   const [ohlc, setOhlc] = useState(null);
 
@@ -76,7 +56,7 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
 
     const chart = createChart(el, {
       width:  el.clientWidth || 800,
-      height: 770,
+      height: 460,
       layout: {
         background: { type: ColorType.Solid, color: TV.bg },
         textColor:  TV.text,
@@ -127,14 +107,6 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
     volR.current    = vol;
     ready.current   = true;
 
-    // Immediately load demo data so chart is never blank
-    const demo = makeDemoCandles(symbol);
-    candles.setData(demo.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-    vol.setData(demo.map(({ time, volume, close, open }) => ({
-      time, value: volume, color: close >= open ? TV.volUp : TV.volDown,
-    })));
-    chart.timeScale().fitContent();
-
     // ResizeObserver for width-only updates (height is fixed at 420px)
     const ro = new ResizeObserver(() => {
       if (!wrapRef.current || !chartR.current) return;
@@ -160,12 +132,13 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
 
     let cancelled = false;
 
+    setLoadState('loading');
     const loadFromAPI = async () => {
       const ctrl    = new AbortController();
       const timeout = setTimeout(() => ctrl.abort(), 4000);
       try {
         const res  = await fetch(
-          `http://localhost:8000/api/test/ohlcv?symbol=${encodeURIComponent(symbol)}&timeframe=${TF_TO_API[tf]||'1m'}&limit=200`,
+          `${API_URL}/api/test/ohlcv?symbol=${encodeURIComponent(symbol)}&timeframe=${TF_TO_API[tf]||'1m'}&limit=300`,
           { signal: ctrl.signal }
         );
         clearTimeout(timeout);
@@ -178,28 +151,34 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
             color: d.close >= d.open ? TV.volUp : TV.volDown,
           })));
           chartR.current.timeScale().fitContent();
+          setLoadState('ok');
+        } else if (!cancelled) {
+          setLoadState('error');
         }
       } catch {
         clearTimeout(timeout);
-        // Backend offline — demo data is already shown, nothing to do
+        if (!cancelled) setLoadState('error');
       }
     };
 
     loadFromAPI();
 
-    // Also refresh demo candles immediately when tf/symbol changes
-    if (ready.current && candleR.current) {
-      const demo = makeDemoCandles(symbol);
-      candleR.current.setData(demo.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-      volR.current.setData(demo.map(({ time, volume, close, open }) => ({
-        time, value: volume, color: close >= open ? TV.volUp : TV.volDown,
-      })));
-      chartR.current.timeScale().fitContent();
-      // Then try API
-    }
-
     return () => { cancelled = true; };
   }, [symbol, tf]);
+
+  // ── Entry-price lines for open positions in this symbol ──────────────────
+  useEffect(() => {
+    const series = candleR.current;
+    if (!series) return;
+    linesR.current.forEach(l => { try { series.removePriceLine(l); } catch { /* ignore */ } });
+    linesR.current = [];
+    positions.filter(p => p.symbol === symbol).forEach(p => {
+      linesR.current.push(series.createPriceLine({
+        price: p.entry_price, color: p.side === 'long' ? TV.up : TV.down, lineWidth: 1, lineStyle: 2,
+        axisLabelVisible: true, title: `${p.side.toUpperCase()} entry`,
+      }));
+    });
+  }, [positions, symbol]);
 
   // ── 3. Live tick ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -227,9 +206,10 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
 
   // ── 4. Markers ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!markersR.current || !signals?.length) return;
+    if (!markersR.current) return;
     markersR.current.setMarkers(
-      signals.filter(s => s.timestamp).map(s => ({
+      (signals || []).filter(s => s.timestamp && (!s.symbol || s.symbol === symbol))
+        .sort((a, b) => a.timestamp - b.timestamp).map(s => ({
         time:     s.timestamp,
         position: s.direction === 'long' ? 'belowBar' : 'aboveBar',
         color:    s.direction === 'long' ? TV.up : TV.down,
@@ -238,7 +218,7 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
         size: 1,
       }))
     );
-  }, [signals]);
+  }, [signals, symbol]);
 
   // ── Fullscreen ─────────────────────────────────────────────────────────────
   const toggleFS = () => {
@@ -265,7 +245,7 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: TV.accent }} />
               <span className="text-white font-bold text-sm sm:text-base tracking-tight">{symbol}</span>
-              <span className="text-[9px] font-mono uppercase tracking-wider hidden sm:inline" style={{ color: TV.text }}>BINANCE</span>
+              <span className="text-[9px] font-mono uppercase tracking-wider hidden sm:inline" style={{ color: TV.text }}>{dataSource === 'synthetic' ? 'SIMULATED' : 'BINANCE'}</span>
             </div>
           </Tooltip>
 
@@ -336,7 +316,14 @@ export default function ChartWidget({ symbol, priceData, signals = [], predictio
       </div>
 
       {/* ── Chart Canvas (explicit 770px height — never zero) ── */}
-      <div ref={canvasRef} style={{ width: '100%', height: 770 }} />
+      <div className="relative">
+        <div ref={canvasRef} style={{ width: '100%', height: 460 }} />
+        {loadState !== 'ok' && (
+          <div className="absolute inset-0 flex items-center justify-center text-xs font-mono" style={{ background: 'rgba(19,23,34,0.85)', color: TV.text }}>
+            {loadState === 'loading' ? `Loading ${symbol} candles…` : 'No market data available — is the backend running?'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

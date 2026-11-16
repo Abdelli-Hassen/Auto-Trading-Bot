@@ -41,39 +41,21 @@
 
 ## 🚀 Quick Start
 
-### 1. Prerequisites
-- **Python 3.10+**
-- **Node.js 18+**
-- **Git**
+**Paper trading only.** Orders are simulated locally against live public prices (Binance public data via CCXT). No API keys, no real money. If the exchange is unreachable the bot falls back to a simulated price feed (`FORCE_SYNTHETIC=true` forces it).
 
-### 2. Installation
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/nextrade-ai.git
-cd nextrade-ai
-
-# Setup Backend
-python -m venv .venv
-source .venv/bin/activate  # Or `.venv\Scripts\activate` on Windows
 pip install -r requirements.txt
-
-# Setup Frontend
-cd ReactFront/trading_bot
-npm install
+cd ReactFront/trading_bot && npm install && cd ../..
+./startweb.bat            # API on :8000, UI on :3000
+python -m pytest tests    # run the test suite
+python main.py backtest 2024-01-01 2024-03-01   # CLI backtest
 ```
 
-### 3. Configuration
-Rename `config.py.example` (if provided) or edit `config.py`:
-- Set `TESTNET = True` for initial testing.
-- Add your Exchange API Keys.
-- Adjust `INITIAL_CAPITAL` and risk parameters.
+Settings (capital, fees, thresholds, risk limits) live in `config.py` and can be overridden with environment variables or a `.env` file (e.g. `INITIAL_CAPITAL=5000`).
 
-### 4. Launch
-Use the parallel launcher to start the entire system in one click:
-```bash
-./startweb.bat
-```
-*This will launch the FastAPI server, the Tailwind watcher, and the Vite dev server simultaneously.*
+### How it trades
+Default strategy (`STRATEGY=trend_momentum`): a long/flat, unleveraged portfolio of 8 large caps on 4h bars. Half Donchian-breakout trend following, half cross-sectional momentum (each averaged over several look-backs), gated by a BTC regime filter and scaled to a 35% volatility target. It rebalances on each new 4h bar and goes to cash when nothing is trending. Backtest on real data (2023-07 to 2026-11, 0.15% costs): Sharpe ~1.3, ~42%/yr, max drawdown ~28% vs BTC buy-and-hold ~25%/yr and -53%. These are estimates: the universe is today's large caps (survivorship bias) and the future can differ. `STRATEGY=pairs` selects the older BTC/ETH pairs strategy.
+Daily/weekly/monthly loss limits and a max-drawdown circuit breaker (30%) are enforced; the paper account persists in SQLite across restarts (the UI's "Reset paper account" wipes it).
 
 ---
 

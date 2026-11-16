@@ -5,44 +5,36 @@ import {
 } from 'lucide-react';
 import Tooltip from './Tooltip';
 
-const API_URL = 'http://localhost:8000';
+import { API_URL } from '../api';
 const TIMEFRAMES = [
   { label: '7D', value: '7d' },
   { label: '30D', value: '30d' },
   { label: 'All', value: 'all' },
 ];
 
-const DEMO_DATA = {
-  metrics: [
-    { label: 'Total Profit',  value: '$0.00',  change: '0.0%', isPositive: true },
-    { label: 'Win Rate',      value: '0.0%',   change: '—',    isPositive: true },
-    { label: 'Max Drawdown',  value: '0.00%',  change: '—',    isPositive: true },
-    { label: 'Daily P&L',    value: '$0.00',  change: '—',    isPositive: true },
-    { label: 'Sharpe Ratio',  value: '0.00',   change: '—',    isPositive: false },
-    { label: 'Profit Factor', value: '0.00x',  change: '—',    isPositive: false },
-  ],
-  chartData: [{ date: 'Start', value: 10000 }, { date: 'Now', value: 10000 }],
-  dailyChart: [],
-  symbolPerf: [],
-};
-
 const Analytics = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState('all');
 
-  const load = useCallback((tf) => {
-    setLoading(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback((tf, silent = false) => {
+    if (!silent) setLoading(true);
     const ctrl    = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 4000);
+    const timeout = setTimeout(() => ctrl.abort(), 8000);
 
     fetch(`${API_URL}/api/test/analytics?timeframe=${tf}`, { signal: ctrl.signal })
-      .then(r => r.json())
-      .then(json => { clearTimeout(timeout); setData(json); setLoading(false); })
-      .catch(() => { clearTimeout(timeout); setData(DEMO_DATA); setLoading(false); });
+      .then(r => { if (!r.ok) throw new Error('bad status'); return r.json(); })
+      .then(json => { clearTimeout(timeout); setData(json); setError(null); setLoading(false); })
+      .catch(() => { clearTimeout(timeout); setError('Cannot reach the trading engine.'); setLoading(false); });
   }, []);
 
-  useEffect(() => { load(timeframe); }, [timeframe]);
+  useEffect(() => {
+    load(timeframe);
+    const id = setInterval(() => load(timeframe, true), 10000);   // keep numbers live
+    return () => clearInterval(id);
+  }, [timeframe, load]);
 
   const getIcon = (label) => {
     if (label.includes('Profit') && !label.includes('Factor')) return DollarSign;
@@ -59,7 +51,11 @@ const Analytics = () => {
     </div>
   );
 
-  if (!data) return <div className="p-4 text-red-500">Failed to load analytics</div>;
+  if (!data) return (
+    <div className="py-24 text-center text-sm text-[var(--color-loss)]">
+      {error || 'Failed to load analytics'} <button className="underline cursor-pointer" onClick={() => load(timeframe)}>Retry</button>
+    </div>
+  );
 
   // Build equity SVG path
   const chartData = data.chartData || [];
@@ -159,7 +155,9 @@ const Analytics = () => {
                 <div className="w-2 h-2 rounded-full bg-[var(--color-gold-500)] animate-pulse" />
                 Equity Curve
               </h3>
-              <span className="text-[10px] font-mono text-[var(--color-surface-500)]">{chartData.length} points</span>
+              <span className="text-[10px] font-mono text-[var(--color-surface-500)]">
+                {chartData.length} points{equityPath.maxV != null ? ` · low $${equityPath.minV.toLocaleString(undefined,{maximumFractionDigits:2})} · high $${equityPath.maxV.toLocaleString(undefined,{maximumFractionDigits:2})}` : ''}
+              </span>
             </div>
             <div className="flex-1 relative min-h-[200px]">
               {chartData.length >= 2 ? (
@@ -183,7 +181,7 @@ const Analytics = () => {
               ) : (
                 <div className="h-full flex flex-col items-center justify-center gap-2">
                   <BarChart2 size={24} className="text-[var(--color-surface-700)]" />
-                  <p className="text-[10px] text-[var(--color-surface-500)]">Equity data pending trades...</p>
+                  <p className="text-[10px] text-[var(--color-surface-500)]">Equity history builds while the bot runs (one point per cycle).</p>
                 </div>
               )}
             </div>
@@ -225,7 +223,7 @@ const Analytics = () => {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center gap-2">
                 <BarChart3 size={24} className="text-[var(--color-surface-700)]" />
-                <p className="text-[10px] text-[var(--color-surface-500)]">No daily data</p>
+                <p className="text-[10px] text-[var(--color-surface-500)]">No closed trades yet — daily P&L appears after the first exit.</p>
               </div>
             )}
           </div>
@@ -242,7 +240,7 @@ const Analytics = () => {
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-[var(--color-surface-900)] z-10 shadow-sm">
                 <tr className="border-b border-[var(--color-surface-800)]/50">
-                  {['Symbol', 'Total', 'Sells', 'P&L'].map(h => (
+                  {['Symbol', 'Fills', 'Exits', 'Realised P&L'].map(h => (
                     <th key={h} className="px-5 py-2 text-left text-[9px] uppercase tracking-wider font-medium text-[var(--color-surface-500)]">{h}</th>
                   ))}
                 </tr>
@@ -262,7 +260,7 @@ const Analytics = () => {
             </table>
           ) : (
             <div className="py-4 flex items-center justify-center text-[10px] text-[var(--color-surface-500)] font-mono">
-              SYMBOL DATA PENDING...
+              NO TRADES YET
             </div>
           )}
         </div>

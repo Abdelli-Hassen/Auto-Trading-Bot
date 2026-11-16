@@ -1,3 +1,4 @@
+import time
 import ccxt
 import pandas as pd
 import asyncio
@@ -8,6 +9,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils import setup_logger
+from data.synthetic import SyntheticFeed
 
 logger = setup_logger("DataFetcher", "data.log")
 
@@ -18,52 +20,80 @@ class DataFetcher:
         self.exchange = self._create_exchange(testnet)
         self.cache = {}
         self._positions_warning_emitted = False
+        self.synthetic = SyntheticFeed()
+        self._offline_until = 0.0     # monotonic time until which we skip the exchange
+        self.data_source = "exchange"  # 'exchange' | 'synthetic'
+
+    # ------------------------------------------------------------ resilience
+    def _use_synthetic(self) -> bool:
+        if config.FORCE_SYNTHETIC:
+            self.data_source = "synthetic"
+            return True
+        return config.ALLOW_SYNTHETIC_FALLBACK and time.monotonic() < self._offline_until
+
+    def _mark_offline(self, err: Exception):
+        if not config.ALLOW_SYNTHETIC_FALLBACK:
+            return
+        if self.data_source != "synthetic":
+            logger.warning(f"Exchange unreachable ({str(err)[:80]}); using simulated price feed")
+        self.data_source = "synthetic"
+        self._offline_until = time.monotonic() + 60   # retry the exchange in a minute
+
+    def _mark_online(self):
+        if self.data_source != "exchange":
+            logger.info("Exchange reachable again; using live prices")
+        self.data_source = "exchange"
         
     def _create_exchange(self, testnet: bool) -> ccxt.Exchange:
         exchange_class = getattr(ccxt, self.exchange_id)
         
-        params = {"enableRateLimit": True, "options": {"adjustForTimeDifference": True}}
-        if testnet and self.exchange_id == "binance":
-            params["testnet"] = True
-            
-        if config.API_KEY and config.API_SECRET:
-            exchange = exchange_class({
-                'apiKey': config.API_KEY,
-                'secret': config.API_SECRET,
-                **params
-            })
-        else:
-            exchange = exchange_class(params)
-            
-        return exchange
+        params = {"enableRateLimit": True, "timeout": 6000,
+                  "options": {"adjustForTimeDifference": False}}
+        # Paper trading uses public market data only: never attach API keys.
+        return exchange_class(params)
     
     def fetch_ohlcv(self, symbol: str, timeframe: str = config.TIMEFRAME, 
                      limit: int = 100, since: Optional[int] = None) -> pd.DataFrame:
-        try:
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit, since=since)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        if not self._use_synthetic():
+            try:
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit, since=since)
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df['symbol'] = symbol
+                self._mark_online()
+                return df
+            except Exception as e:
+                logger.error(f"Error fetching OHLCV for {symbol}: {e}")
+                self._mark_offline(e)
+        if config.ALLOW_SYNTHETIC_FALLBACK:
+            df = self.synthetic.ohlcv(symbol, timeframe, limit)
             df['symbol'] = symbol
             return df
-        except Exception as e:
-            logger.error(f"Error fetching OHLCV for {symbol}: {e}")
-            return pd.DataFrame()
+        return pd.DataFrame()
     
     def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict:
-        try:
-            order_book = self.exchange.fetch_order_book(symbol, limit)
-            return order_book
-        except Exception as e:
-            logger.error(f"Error fetching order book for {symbol}: {e}")
-            return {'bids': [], 'asks': []}
+        if not self._use_synthetic():
+            try:
+                return self.exchange.fetch_order_book(symbol, limit)
+            except Exception as e:
+                logger.error(f"Error fetching order book for {symbol}: {e}")
+                self._mark_offline(e)
+        if config.ALLOW_SYNTHETIC_FALLBACK:
+            return self.synthetic.order_book(symbol, limit)
+        return {'bids': [], 'asks': []}
     
     def fetch_ticker(self, symbol: str) -> Dict:
-        try:
-            ticker = self.exchange.fetch_ticker(symbol)
-            return ticker
-        except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {e}")
-            return {}
+        if not self._use_synthetic():
+            try:
+                ticker = self.exchange.fetch_ticker(symbol)
+                self._mark_online()
+                return ticker
+            except Exception as e:
+                logger.error(f"Error fetching ticker for {symbol}: {e}")
+                self._mark_offline(e)
+        if config.ALLOW_SYNTHETIC_FALLBACK:
+            return self.synthetic.ticker(symbol)
+        return {}
     
     def fetch_balance(self) -> Dict:
         try:
@@ -110,7 +140,9 @@ class DataFetcher:
         current_date = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
         
-        while current_date < end:
+        requests_left = 25   # hard cap so a bad range can never loop forever
+        while current_date < end and requests_left > 0:
+            requests_left -= 1
             since = int(current_date.timestamp() * 1000)
             try:
                 ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=1000)
@@ -128,10 +160,15 @@ class DataFetcher:
                     
             except Exception as e:
                 logger.error(f"Error fetching historical data: {e}")
+                self._mark_offline(e)
                 break
         
+        if not all_data and config.ALLOW_SYNTHETIC_FALLBACK:
+            return self.synthetic.ohlcv(symbol, timeframe, 1000)
         if all_data:
-            return pd.concat(all_data, ignore_index=True)
+            df = pd.concat(all_data, ignore_index=True)
+            df = df.drop_duplicates('timestamp').sort_values('timestamp').reset_index(drop=True)
+            return df[df['timestamp'] <= end + timedelta(days=1)].reset_index(drop=True)
         return pd.DataFrame()
     
     def get_spread(self, symbol: str) -> float:

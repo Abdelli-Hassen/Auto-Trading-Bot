@@ -1,300 +1,146 @@
-import pandas as pd
+"""
+Pairs-trading backtester.
+
+Replays historical bars through exactly the same decision logic and the same
+PaperAccount (fees + slippage) that the live paper bot uses.
+"""
+from typing import Dict, List, Optional
+
 import numpy as np
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime, timedelta
+import pandas as pd
+
 import config
-from utils import setup_logger
 from data.fetcher import DataFetcher
-from data.storage import DataStorage
-from data.validator import DataValidator
+from execution.paper import PaperAccount
+from utils import setup_logger, calculate_sharpe, calculate_max_drawdown
 
 logger = setup_logger("BacktestEngine", "backtest.log")
 
+_BARS_PER_YEAR = {"1m": 525600, "5m": 105120, "15m": 35040, "30m": 17520,
+                  "1h": 8760, "4h": 2190, "1d": 365}
+
+
 class BacktestEngine:
-    def __init__(self, initial_capital: float = config.INITIAL_CAPITAL):
+    def __init__(self, initial_capital: float = config.INITIAL_CAPITAL, data_fetcher: DataFetcher = None):
         self.initial_capital = initial_capital
-        self.capital = initial_capital
-        self.positions = {}  # symbol -> position info
-        self.trades = []     # list of completed trades
-        self.equity_curve = []  # list of (timestamp, equity)
-        self.data_fetcher = DataFetcher(testnet=True)  # Use testnet for historical data
-        self.storage = DataStorage()
-        self.validator = DataValidator()
-        self.logger = logger
-        
-    def run_backtest(self, strategy, symbol: str, start_date: str, end_date: str, 
-                    timeframe: str = config.TIMEFRAME) -> Dict:
-        """
-        Run a backtest for a given strategy on historical data.
-        Returns a dictionary with performance metrics.
-        """
-        self.logger.info(f"Starting backtest for {strategy.name} on {symbol} from {start_date} to {end_date}")
-        
-        # Reset backtest state
-        self._reset()
-        
-        # Fetch historical data
-        raw_data = self.data_fetcher.get_historical_data(symbol, start_date, end_date, timeframe)
-        if raw_data.empty:
-            self.logger.error("No historical data fetched")
-            return self._get_results()
-        
-        # Validate data
-        is_valid, errors = self.validator.validate_ohlcv(raw_data, symbol)
-        if not is_valid:
-            self.logger.warning(f"Data validation issues: {errors}")
-            # Continue anyway but log warnings
-        
-        # Generate signals
-        signals_df = strategy.generate_signals(raw_data)
-        if signals_df.empty:
-            self.logger.warning("No signals generated")
-            return self._get_results()
-        
-        # Ensure signals DataFrame has required columns
-        required_columns = ['signal', 'entry_price', 'stop_loss', 'take_profit']
-        for col in required_columns:
-            if col not in signals_df.columns:
-                signals_df[col] = 0.0
-        
-        # Combine data and signals
-        data = raw_data.copy()
-        for col in required_columns:
-            data[col] = signals_df[col].values
-        
-        # Iterate through each bar
-        for i in range(len(data)):
-            current_bar = data.iloc[i]
-            timestamp = current_bar['timestamp']
-            signal = current_bar['signal']
-            entry_price = current_bar['entry_price']
-            stop_loss = current_bar['stop_loss']
-            take_profit = current_bar['take_profit']
-            close_price = current_bar['close']
-            
-            # Update existing positions
-            self._update_positions(timestamp, close_price)
-            
-            # Check for new signals
-            if signal != 0 and len(self.positions) < config.MAX_POSITIONS:
-                self._process_signal(timestamp, signal, entry_price, stop_loss, take_profit, close_price)
-            
-            # Record equity
-            equity = self._calculate_equity(close_price)
-            self.equity_curve.append((timestamp, equity))
-        
-        # Close any remaining positions at the end
-        if self.positions:
-            final_timestamp = data.iloc[-1]['timestamp']
-            final_price = data.iloc[-1]['close']
-            self._close_all_positions(final_timestamp, final_price, "end_of_backtest")
-        
-        self.logger.info("Backtest completed")
-        return self._get_results()
-    
-    def _reset(self):
-        """Reset backtest state."""
-        self.capital = self.initial_capital
-        self.positions = {}
-        self.trades = []
-        self.equity_curve = []
-    
-    def _process_signal(self, timestamp: datetime, signal: int, entry_price: float, 
-                       stop_loss: float, take_profit: float, current_price: float):
-        """Process a trading signal."""
-        # Use current price as entry if entry_price is 0 or invalid
-        if entry_price <= 0:
-            entry_price = current_price
-        
-        # Calculate stop loss and take profit if not provided
-        if stop_loss <= 0:
-            from risk.manager import RiskManager
-            risk_manager = RiskManager()
-            stop_loss = risk_manager.calculate_stop_loss(entry_price, 'long' if signal > 0 else 'short')
-        if take_profit <= 0:
-            from risk.manager import RiskManager
-            risk_manager = RiskManager()
-            take_profit = risk_manager.calculate_take_profit(entry_price, 'long' if signal > 0 else 'short', 
-                                                            stop_loss_price=stop_loss)
-        
-        # Calculate position size
-        from risk.manager import RiskManager
-        risk_manager = RiskManager()
-        position_size = risk_manager.calculate_position_size(entry_price, stop_loss, self.capital)
-        
-        if position_size <= 0:
-            self.logger.warning(f"Position size is zero or negative: {position_size}")
-            return
-        
-        # Determine position side
-        side = 'long' if signal > 0 else 'short'
-        
-        # Create position
-        position = {
-            'symbol': 'SYMBOL',  # Will be set by caller
-            'side': side,
-            'size': position_size,
-            'entry_price': entry_price,
-            'stop_loss': stop_loss,
-            'take_profit': take_profit,
-            'entry_time': timestamp,
-            'unrealized_pnl': 0.0
-        }
-        
-        # For simplicity, we'll use a single position per backtest
-        # In reality, we'd manage multiple positions
-        position_key = f"{side}_{len(self.positions)}"
-        self.positions[position_key] = position
-        
-        self.logger.debug(f"Opened {side} position at {timestamp}: size={position_size:.6f}, entry={entry_price:.2f}")
-    
-    def _update_positions(self, timestamp: datetime, current_price: float):
-        """Update unrealized P&L for open positions."""
-        for pos_key, position in self.positions.items():
-            if position['side'] == 'long':
-                pnl = (current_price - position['entry_price']) * position['size']
-            else:  # short
-                pnl = (position['entry_price'] - current_price) * position['size']
-            
-            position['unrealized_pnl'] = pnl
-            
-            # Check stop loss
-            if position['side'] == 'long' and current_price <= position['stop_loss']:
-                self._close_position(pos_key, timestamp, current_price, "stop_loss")
-                return
-            elif position['side'] == 'short' and current_price >= position['stop_loss']:
-                self._close_position(pos_key, timestamp, current_price, "stop_loss")
-                return
-            
-            # Check take profit
-            if position['side'] == 'long' and current_price >= position['take_profit']:
-                self._close_position(pos_key, timestamp, current_price, "take_profit")
-                return
-            elif position['side'] == 'short' and current_price <= position['take_profit']:
-                self._close_position(pos_key, timestamp, current_price, "take_profit")
-                return
-    
-    def _close_position(self, pos_key: str, timestamp: datetime, price: float, reason: str):
-        """Close a position and record the trade."""
-        if pos_key not in self.positions:
-            return
-        
-        position = self.positions[pos_key]
-        
-        # Calculate realized P&L
-        if position['side'] == 'long':
-            pnl = (price - position['entry_price']) * position['size']
-        else:  # short
-            pnl = (position['entry_price'] - price) * position['size']
-        
-        # Record trade
-        trade = {
-            'symbol': position.get('symbol', 'UNKNOWN'),
-            'side': position['side'],
-            'entry_time': position['entry_time'],
-            'exit_time': timestamp,
-            'entry_price': position['entry_price'],
-            'exit_price': price,
-            'size': position['size'],
-            'pnl': pnl,
-            'pnl_percent': pnl / (position['entry_price'] * position['size']) if position['entry_price'] * position['size'] > 0 else 0,
-            'reason': reason
-        }
-        
-        self.trades.append(trade)
-        self.capital += pnl
-        
-        # Remove position
-        del self.positions[pos_key]
-        
-        self.logger.debug(f"Closed position {pos_key} at {timestamp}: {reason}, P&L={pnl:.2f}")
-    
-    def _close_all_positions(self, timestamp: datetime, price: float, reason: str):
-        """Close all open positions."""
-        pos_keys = list(self.positions.keys())
-        for pos_key in pos_keys:
-            self._close_position(pos_key, timestamp, price, reason)
-    
-    def _calculate_equity(self, current_price: float) -> float:
-        """Calculate current equity including unrealized P&L."""
-        equity = self.capital
-        for position in self.positions.values():
-            if position['side'] == 'long':
-                unrealized_pnl = (current_price - position['entry_price']) * position['size']
-            else:  # short
-                unrealized_pnl = (position['entry_price'] - current_price) * position['size']
-            equity += unrealized_pnl
-        return equity
-    
-    def _get_results(self) -> Dict:
-        """Calculate and return backtest results."""
-        if not self.trades:
-            return {
-                'initial_capital': self.initial_capital,
-                'final_capital': self.capital,
-                'total_return': 0.0,
-                'total_return_percent': 0.0,
-                'total_trades': 0,
-                'winning_trades': 0,
-                'losing_trades': 0,
-                'win_rate': 0.0,
-                'profit_factor': 0.0,
-                'sharpe_ratio': 0.0,
-                'max_drawdown': 0.0,
-                'equity_curve': self.equity_curve,
-                'trades': self.trades
-            }
-        
-        # Calculate basic metrics
-        total_return = self.capital - self.initial_capital
-        total_return_percent = total_return / self.initial_capital if self.initial_capital > 0 else 0
-        
-        winning_trades = [t for t in self.trades if t['pnl'] > 0]
-        losing_trades = [t for t in self.trades if t['pnl'] <= 0]
-        
-        win_rate = len(winning_trades) / len(self.trades) if self.trades else 0
-        
-        total_wins = sum(t['pnl'] for t in winning_trades)
-        total_losses = abs(sum(t['pnl'] for t in losing_trades))
-        profit_factor = total_wins / total_losses if total_losses > 0 else float('inf') if total_wins > 0 else 0
-        
-        # Calculate Sharpe ratio
-        if self.equity_curve:
-            returns = []
-            for i in range(1, len(self.equity_curve)):
-                prev_equity = self.equity_curve[i-1][1]
-                curr_equity = self.equity_curve[i][1]
-                if prev_equity > 0:
-                    returns.append((curr_equity - prev_equity) / prev_equity)
-            
-            from utils import calculate_sharpe
-            sharpe_ratio = calculate_sharpe(returns)
-        else:
-            sharpe_ratio = 0.0
-        
-        # Calculate max drawdown
-        if self.equity_curve:
-            equity_values = [eq[1] for eq in self.equity_curve]
-            from utils import calculate_max_drawdown
-            max_drawdown = calculate_max_drawdown(equity_values)
-        else:
-            max_drawdown = 0.0
-        
-        results = {
+        self.data_fetcher = data_fetcher or DataFetcher()
+        self.trades: List[Dict] = []
+        self.equity_curve: List = []
+
+    def run_backtest(self, strategy, start_date: str, end_date: str, timeframe: str = "1h") -> Dict:
+        s1, s2 = strategy.pair
+        logger.info(f"Backtest {strategy.name} {s1}/{s2} {start_date} -> {end_date} [{timeframe}]")
+        d1 = self.data_fetcher.get_historical_data(s1, start_date, end_date, timeframe)
+        d2 = self.data_fetcher.get_historical_data(s2, start_date, end_date, timeframe)
+        if d1.empty or d2.empty:
+            raise ValueError("No historical data available for the requested range")
+        merged = pd.merge(d1[['timestamp', 'close']], d2[['timestamp', 'close']],
+                          on='timestamp', suffixes=('_1', '_2')).dropna().reset_index(drop=True)
+        if len(merged) < strategy.window + 5:
+            raise ValueError(f"Not enough overlapping bars ({len(merged)}) for window {strategy.window}")
+        return self.run_on_frame(strategy, merged, timeframe)
+
+    def run_portfolio(self, strategy, start_date: str, end_date: str) -> Dict:
+        """Backtest the trend+momentum portfolio on real 4h history (incl. warm-up)."""
+        from datetime import datetime, timedelta
+        warm_start = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=130)).strftime("%Y-%m-%d")
+        closes = {}
+        for sym in strategy.symbols:
+            df = self.data_fetcher.get_historical_data(sym, warm_start, end_date, strategy.timeframe)
+            if df.empty:
+                raise ValueError(f"No historical data for {sym}")
+            closes[sym.split("/")[0]] = df.set_index("timestamp")["close"]
+        P = pd.DataFrame(closes).dropna()
+        res = strategy.backtest(P)
+        start = pd.Timestamp(start_date)
+        curve = [(t, v) for t, v in res["equity_curve"] if pd.Timestamp(t) >= start] or res["equity_curve"]
+        base = curve[0][1]
+        curve = [(t, self.initial_capital * v / base) for t, v in curve]
+        final = curve[-1][1]
+        res.update({
+            "initial_capital": self.initial_capital, "final_capital": final,
+            "total_return": final - self.initial_capital,
+            "total_return_percent": final / self.initial_capital - 1,
+            "equity_curve": curve, "trades": [], "total_trades": 0, "win_rate": 0.0,
+            "profit_factor": 0.0, "winning_trades": 0, "losing_trades": 0, "fees_paid": 0.0,
+        })
+        return res
+
+    def run_on_frame(self, strategy, frame: pd.DataFrame, timeframe: str = "1h") -> Dict:
+        """frame: columns timestamp, close_1, close_2."""
+        s1, s2 = strategy.pair
+        acct = PaperAccount(self.initial_capital)
+        roll = strategy.rolling_zscore(frame['close_1'], frame['close_2'])
+        z, stds = roll['z'].to_numpy(), roll['std'].to_numpy()
+        p1, p2 = frame['close_1'].to_numpy(), frame['close_2'].to_numpy()
+        ts = frame['timestamp']
+        self.trades, self.equity_curve = [], []
+        spread_pos: Optional[str] = None
+        pair_pnl = 0.0
+        pair_open_eq = 0.0
+
+        def close_pair(i, reason):
+            nonlocal spread_pos
+            pnl = 0.0
+            for sym, px in ((s1, p1[i]), (s2, p2[i])):
+                fill = acct.close_position(sym, px, reason)
+                if fill:
+                    pnl += fill['pnl']
+            self.trades.append({"exit_time": str(ts.iloc[i]), "pnl": pnl, "reason": reason,
+                                "side": spread_pos, "entry_time": entry_time})
+            spread_pos = None
+
+        entry_time = None
+        for i in range(len(frame)):
+            acct.mark({s1: p1[i], s2: p2[i]})
+            zi = z[i]
+            if not np.isnan(zi):
+                action = strategy.decide(float(zi), spread_pos, float(stds[i]))
+                if spread_pos is not None and acct.unrealized_pnl() <= -2 * config.RISK_PER_TRADE * pair_open_eq:
+                    action = "stop"
+                if action in ("close", "stop"):
+                    close_pair(i, "mean_reversion" if action == "close" else "stop_loss")
+                elif action in ("open_long", "open_short") and spread_pos is None:
+                    eq = acct.equity()
+                    notional = eq * config.MAX_POSITION_SIZE
+                    long_s = action == "open_long"
+                    a = acct.open_position(s1, "long" if long_s else "short", notional / p1[i], p1[i])
+                    b = acct.open_position(s2, "short" if long_s else "long", notional / p2[i], p2[i])
+                    if a and b:
+                        spread_pos = "long" if long_s else "short"
+                        pair_open_eq = eq
+                        entry_time = str(ts.iloc[i])
+            self.equity_curve.append((str(ts.iloc[i]), acct.equity()))
+        if spread_pos is not None:
+            acct.mark({s1: p1[-1], s2: p2[-1]})
+            close_pair(len(frame) - 1, "end_of_backtest")
+            self.equity_curve[-1] = (str(ts.iloc[-1]), acct.equity())
+
+        return self._results(acct, timeframe)
+
+    def _results(self, acct: PaperAccount, timeframe: str) -> Dict:
+        final = acct.equity()
+        pnls = [t['pnl'] for t in self.trades]
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p <= 0]
+        eq = [e for _, e in self.equity_curve]
+        rets = list(np.diff(eq) / np.array(eq[:-1])) if len(eq) > 1 else []
+        sharpe = calculate_sharpe(rets) * np.sqrt(_BARS_PER_YEAR.get(timeframe, 8760) / 252) if rets else 0.0
+        gross_loss = abs(sum(losses))
+        return {
             'initial_capital': self.initial_capital,
-            'final_capital': self.capital,
-            'total_return': total_return,
-            'total_return_percent': total_return_percent,
-            'total_trades': len(self.trades),
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'win_rate': win_rate,
-            'profit_factor': profit_factor,
-            'sharpe_ratio': sharpe_ratio,
-            'max_drawdown': max_drawdown,
+            'final_capital': final,
+            'total_return': final - self.initial_capital,
+            'total_return_percent': (final - self.initial_capital) / self.initial_capital,
+            'total_trades': len(pnls),
+            'winning_trades': len(wins),
+            'losing_trades': len(losses),
+            'win_rate': len(wins) / len(pnls) if pnls else 0.0,
+            'profit_factor': (sum(wins) / gross_loss) if gross_loss > 0 else (sum(wins) if wins else 0.0),
+            'sharpe_ratio': float(np.clip(sharpe, -99, 99)),
+            'max_drawdown': calculate_max_drawdown(eq),
+            'fees_paid': acct.fees_paid,
+            'bars': len(eq),
             'equity_curve': self.equity_curve,
-            'trades': self.trades
+            'trades': self.trades,
         }
-        
-        self.logger.info(f"Backtest results: Return={total_return_percent:.2%}, Trades={len(self.trades)}, Win Rate={win_rate:.2%}")
-        return results

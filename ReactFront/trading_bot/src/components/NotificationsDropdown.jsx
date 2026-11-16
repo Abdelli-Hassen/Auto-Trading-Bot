@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, AlertTriangle, CheckCircle, Info, XCircle, Loader } from 'lucide-react';
+import { API_URL } from '../api';
 
 const ICON_MAP = {
   success: CheckCircle,
@@ -15,14 +16,14 @@ const COLOR_MAP = {
   error: 'text-[var(--color-loss)]',
 };
 
-const NotificationsDropdown = ({ isOpen, onClose }) => {
+const NotificationsDropdown = ({ isOpen, onClose, lastSeenId = 0, onMarkAllRead }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch('http://localhost:8000/api/test/notifications')
+    fetch(`${API_URL}/api/test/notifications`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch');
         return res.json();
@@ -48,9 +49,9 @@ const NotificationsDropdown = ({ isOpen, onClose }) => {
             <Bell size={16} className="text-[var(--color-gold-500)]" />
             Notifications
           </h3>
-          {notifications.length > 0 && (
+          {notifications.filter(n => n.id > lastSeenId).length > 0 && (
             <span className="text-xs bg-[var(--color-gold-600)] text-black px-2 py-0.5 rounded-full font-bold">
-              {notifications.length} New
+              {notifications.filter(n => n.id > lastSeenId).length} New
             </span>
           )}
         </div>
@@ -68,7 +69,7 @@ const NotificationsDropdown = ({ isOpen, onClose }) => {
             notifications.map((notif) => {
               const Icon = ICON_MAP[notif.type] ?? Info;
               return (
-                <div key={notif.id} className="px-4 py-3 border-b border-[var(--color-surface-800)]/50 hover:bg-[var(--color-surface-800)]/30 transition-colors flex gap-3 cursor-pointer">
+                <div key={notif.id} className={`px-4 py-3 border-b border-[var(--color-surface-800)]/50 hover:bg-[var(--color-surface-800)]/30 transition-colors flex gap-3 ${notif.id > lastSeenId ? 'bg-[var(--color-gold-500)]/5' : ''}`}>
                   <div className={`mt-0.5 ${COLOR_MAP[notif.type] ?? COLOR_MAP.info}`}>
                     <Icon size={16} />
                   </div>
@@ -86,7 +87,7 @@ const NotificationsDropdown = ({ isOpen, onClose }) => {
         </div>
 
         <div className="p-2 bg-[var(--color-surface-850)] text-center border-t border-[var(--color-surface-800)]">
-          <button className="text-xs text-[var(--color-surface-400)] hover:text-white transition-colors">
+          <button onClick={onMarkAllRead} className="text-xs text-[var(--color-surface-400)] hover:text-white transition-colors cursor-pointer">
             Mark all as read
           </button>
         </div>
