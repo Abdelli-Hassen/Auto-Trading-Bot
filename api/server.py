@@ -421,6 +421,11 @@ def withdraw(req: FundsRequest):
     return {"status": "success", "message": f"Withdrew ${req.amount:,.2f}", **res}
 
 
+@app.get("/api/readiness")
+def get_readiness():
+    return bot_instance.readiness()
+
+
 @app.get("/api/account")
 def get_account():
     st = bot_instance.get_status()

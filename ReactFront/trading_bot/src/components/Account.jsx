@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Wallet, TrendingUp, Receipt, Award, TrendingDown, Gauge, ShieldAlert, SlidersHorizontal, RotateCcw, Loader } from 'lucide-react';
+import { Wallet, TrendingUp, Receipt, Award, TrendingDown, Gauge, ShieldAlert, SlidersHorizontal, RotateCcw, Loader, CheckCircle2, Circle, Rocket } from 'lucide-react';
 import { api, usePolling, money, signedMoney, pct, signedPct, pnlClass } from '../api';
 
 function Stat({ icon: Icon, label, value, cls = 'text-white', sub }) {
@@ -24,6 +24,52 @@ function LimitBar({ label, used, limit, current }) {
       <div className="h-1.5 rounded-full bg-[var(--color-surface-800)] overflow-hidden">
         <div className="h-full rounded-full transition-all duration-700"
           style={{ width: `${frac * 100}%`, background: frac > 0.8 ? 'var(--color-loss)' : frac > 0.5 ? 'var(--color-gold-500)' : 'var(--color-profit)' }} />
+      </div>
+    </div>
+  );
+}
+
+function Readiness() {
+  const { data: r } = usePolling('/api/readiness', 20000);
+  if (!r) return null;
+  const fmt = (c) => c.unit === 'days' ? `${c.value.toFixed(1)} / ${c.target} days`
+    : c.unit === 'trades' ? `${c.value} / ${c.target} trades`
+    : c.unit === 'pct' ? `${(c.value * 100).toFixed(2)}%`
+    : c.unit === 'pct_max' ? `${(c.value * 100).toFixed(1)}% (max ${(c.target * 100).toFixed(0)}%)`
+    : `${(c.value || 0).toFixed(2)}x (need ${c.target}x)`;
+  return (
+    <div className="rounded-3xl border border-white/5 bg-gradient-to-b from-[var(--color-surface-850)]/80 to-[var(--color-surface-900)]/60 overflow-hidden">
+      <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-wrap gap-3">
+        <h3 className="text-sm font-heading font-bold text-white tracking-widest flex items-center gap-2"><Rocket size={16} className="text-[var(--color-gold-500)]" /> SCALE-UP READINESS</h3>
+        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${r.ready ? 'bg-[var(--color-profit-dim)] text-[var(--color-profit)]' : 'bg-[var(--color-gold-500)]/10 text-[var(--color-gold-400)]'}`}>
+          {r.passed} of {r.total} checks passed
+        </span>
+      </div>
+      <div className="p-6 grid grid-cols-1 xl:grid-cols-5 gap-6">
+        <div className="xl:col-span-3 flex flex-col gap-3">
+          {r.checks.map(c => (
+            <div key={c.key} className="flex gap-3">
+              {c.pass ? <CheckCircle2 size={18} className="text-[var(--color-profit)] shrink-0 mt-0.5" /> : <Circle size={18} className="text-[var(--color-surface-600)] shrink-0 mt-0.5" />}
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between gap-3 text-[12px]"><span className="text-white font-medium">{c.label}</span><span className="font-mono text-[var(--color-surface-400)] whitespace-nowrap">{fmt(c)}</span></div>
+                <p className="text-[10px] text-[var(--color-surface-500)] mt-0.5 leading-snug">{c.why}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="xl:col-span-2 rounded-2xl bg-[var(--color-surface-950)]/50 border border-white/5 p-4 flex flex-col gap-3">
+          <p className="text-[12px] text-white/90 leading-relaxed">{r.verdict}</p>
+          <div className="text-[11px] text-[var(--color-surface-400)] leading-relaxed">
+            <p className="font-bold text-[var(--color-surface-300)] mb-1">The ladder</p>
+            <ol className="list-decimal pl-4 space-y-0.5">
+              <li>Run with a small amount until all checks pass.</li>
+              <li>Add the same amount again (2x). Wait for 30 more closed trades.</li>
+              <li>Repeat only while the live record keeps matching the tests.</li>
+              <li>Never add money you can't afford to lose.</li>
+            </ol>
+          </div>
+          <p className="text-[10px] text-[var(--color-surface-500)] leading-snug">Reference: {r.backtest_reference.note}</p>
+        </div>
       </div>
     </div>
   );
@@ -90,6 +136,8 @@ export default function Account({ data, onOpenSettings, onNotice }) {
         <Stat icon={Award} label="Profit factor" value={risk.profit_factor ? `${risk.profit_factor.toFixed(2)}x` : '—'} sub="Gross profit / gross loss" />
         <Stat icon={Wallet} label="Locked-in profit" value={signedMoney(acct.realised_gross || 0)} cls={pnlClass(acct.realised_gross || 0)} sub={`Today ${signedMoney(daily.pnl || 0)} · open ${signedMoney(acct.open_pnl || 0)}`} />
       </div>
+
+      <Readiness />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-[var(--color-surface-900)]/40 backdrop-blur-md border border-[var(--color-surface-800)]/60 rounded-3xl overflow-hidden">

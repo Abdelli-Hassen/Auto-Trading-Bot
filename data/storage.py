@@ -266,6 +266,16 @@ class DataStorage:
         conn.close()
         return float(row[0]) if row else None
 
+    def first_equity_time(self):
+        """UTC datetime of the first recorded equity point (when the account started), or None."""
+        conn = self.get_connection()
+        row = conn.execute("SELECT MIN(timestamp) FROM equity").fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        from datetime import datetime, timezone
+        return datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+
     def get_trade_pnls(self) -> list:
         """Realised PnL of every closing fill, oldest first."""
         conn = self.get_connection()

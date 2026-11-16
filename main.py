@@ -760,6 +760,43 @@ class TradingBot:
             "realized_pnl": sum(t["pnl"] for t in self.pair_trades),
         }
 
+    def readiness(self) -> Dict:
+        """Has the bot earned the right to more money? Judged only on its own live record."""
+        from datetime import timezone
+        first = self.storage.first_equity_time()
+        days = (datetime.now(timezone.utc) - first).total_seconds() / 86400 if first else 0.0
+        risk = self.risk_manager.get_risk_metrics()
+        initial = max(self.account.initial_capital, 1e-9)
+        ret = risk["total_pnl"] / initial
+        trades = len(self.pair_trades)
+        pf = risk["profit_factor"]
+        dd = risk["max_drawdown_reached"]
+        checks = [
+            {"key": "time", "label": "Has run for at least 60 days", "value": days, "target": 60, "unit": "days",
+             "pass": days >= 60, "why": "A few good days prove nothing. Markets change; it needs to live through different conditions."},
+            {"key": "trades", "label": "At least 30 closed trades", "value": trades, "target": 30, "unit": "trades",
+             "pass": trades >= 30, "why": "Win rate and profit factor mean nothing on a handful of trades."},
+            {"key": "profit", "label": "Profitable after fees", "value": ret, "target": 0.0, "unit": "pct",
+             "pass": ret > 0 and days >= 7, "why": "Real fees and slippage are included in the paper account."},
+            {"key": "dd", "label": "Worst drop from peak under 25%", "value": dd, "target": 0.25, "unit": "pct_max",
+             "pass": days >= 7 and dd <= 0.25, "why": "If it drops this much with small money, it will with big money too (just in bigger dollars)."},
+            {"key": "pf", "label": "Wins outweigh losses (profit factor above 1.2)", "value": pf, "target": 1.2, "unit": "x",
+             "pass": trades >= 10 and pf >= 1.2, "why": "Total profit of winners divided by total loss of losers."},
+        ]
+        passed = sum(1 for c in checks if c["pass"])
+        ready = passed == len(checks)
+        if ready:
+            verdict = ("Its live record looks consistent. If you scale, do it in steps: add at most the same amount again, "
+                       "then wait for the next 30 trades before the next step.")
+        else:
+            todo = [c["label"] for c in checks if not c["pass"]]
+            verdict = "Keep it small and keep testing. Still missing: " + "; ".join(todo) + "."
+        return {"ready": ready, "passed": passed, "total": len(checks), "checks": checks, "verdict": verdict,
+                "days": days, "return_pct": ret, "closed_trades": trades,
+                "fees_paid": self.account.fees_paid, "initial_capital": self.account.initial_capital,
+                "backtest_reference": {"cagr": 0.41, "max_drawdown": 0.28,
+                                       "note": "Long-only backtest 2023-26: about 41%/yr, worst drop about 28%. Past results, not a promise."}}
+
     def recent_events(self, limit: int = 12) -> List[Dict]:
         out = []
         for a in reversed(self.monitor.get_recent_alerts(limit)):

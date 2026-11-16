@@ -427,3 +427,18 @@ def test_today_is_measured_from_midnight_using_history(storage, fetcher):
     st = bot.get_status()
     assert st["daily_stats"]["pnl"] == pytest.approx(50.0)
     assert st["daily_stats"]["pnl"] == pytest.approx(st["risk_metrics"]["total_pnl"])
+
+
+def test_readiness_is_honest_for_a_new_account(storage, fetcher):
+    bot = make_bot(storage, fetcher)
+    r = bot.readiness()
+    assert r["ready"] is False and r["total"] == 5 and r["passed"] < r["total"]
+    assert "Keep it small" in r["verdict"]
+    keys = {c["key"] for c in r["checks"]}
+    assert keys == {"time", "trades", "profit", "dd", "pf"}
+    # not ready on a great week either: needs 60 days and 30 trades
+    bot.pair_trades = [{"pnl": 5.0, "time": "2026-01-01T00:00:00", "strategy": "trend_momentum"}] * 40
+    bot.account.cash += 100
+    r2 = bot.readiness()
+    assert not next(c for c in r2["checks"] if c["key"] == "time")["pass"]
+    assert r2["ready"] is False
