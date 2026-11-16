@@ -257,6 +257,15 @@ class DataStorage:
         conn.commit()
         conn.close()
 
+    def equity_before(self, utc_ts: str):
+        """Last recorded equity strictly before `utc_ts` ('YYYY-MM-DD HH:MM:SS' UTC); else the first record ever."""
+        conn = self.get_connection()
+        row = conn.execute("SELECT equity FROM equity WHERE timestamp < ? ORDER BY timestamp DESC LIMIT 1", (utc_ts,)).fetchone()
+        if row is None:
+            row = conn.execute("SELECT equity FROM equity ORDER BY timestamp ASC LIMIT 1").fetchone()
+        conn.close()
+        return float(row[0]) if row else None
+
     def get_trade_pnls(self) -> list:
         """Realised PnL of every closing fill, oldest first."""
         conn = self.get_connection()

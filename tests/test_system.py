@@ -415,3 +415,15 @@ def test_pnl_breakdown_adds_up_and_today_includes_open(storage, fetcher):
     assert st["daily_stats"]["pnl"] == pytest.approx(total)      # nothing else happened today
     bot.deposit(1000)
     assert bot.get_status()["daily_stats"]["pnl"] == pytest.approx(total)    # deposits are not profit
+
+
+def test_today_is_measured_from_midnight_using_history(storage, fetcher):
+    conn = storage.get_connection()
+    conn.execute("INSERT INTO equity (timestamp, equity, balance) VALUES ('2000-01-01 12:00:00', 10000, 10000)")
+    conn.commit()
+    conn.close()
+    bot = make_bot(storage, fetcher)
+    bot.account.cash += 50                                   # +$50 earned today
+    st = bot.get_status()
+    assert st["daily_stats"]["pnl"] == pytest.approx(50.0)
+    assert st["daily_stats"]["pnl"] == pytest.approx(st["risk_metrics"]["total_pnl"])

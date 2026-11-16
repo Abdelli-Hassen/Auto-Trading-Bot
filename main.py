@@ -469,7 +469,7 @@ class TradingBot:
 
     def _shift_day_anchor(self, delta: float):
         self._day_anchor()
-        self.settings["flows"]["day_anchor"]["equity"] += delta
+        self.settings["flows"]["flow_today"] = self.settings["flows"].get("flow_today", 0.0) + delta
 
     def _after_funds_change(self, kind: str, amount: float):
         config.INITIAL_CAPITAL = self.account.initial_capital          # P&L and loss limits use net deposits
@@ -716,18 +716,33 @@ class TradingBot:
 
     # ------------------------------------------------------------------ status
     def _day_anchor(self) -> float:
-        """Equity at the start of today (deposits/withdrawals adjust it), so 'Today' is a true day P&L."""
+        """Account equity at local midnight (from the recorded equity history), plus today's deposits/withdrawals.
+
+        'Today' = equity now minus this, so it is the true change since midnight, open positions included.
+        """
+        from datetime import timezone
         today = datetime.now().date().isoformat()
         flows = self.settings.setdefault("flows", {})
-        anchor = flows.get("day_anchor")
-        if not anchor or anchor.get("date") != today:
-            anchor = {"date": today, "equity": self.account.equity()}
-            flows["day_anchor"] = anchor
+        if flows.get("flow_date") != today:                      # new day: forget yesterday's deposits
+            flows["flow_date"], flows["flow_today"] = today, 0.0
+            self._base_cache = None
             try:
                 self._persist_settings()
             except Exception as e:
-                logger.warning(f"Could not persist day anchor: {e}")
-        return float(anchor["equity"])
+                logger.warning(f"Could not persist flows: {e}")
+        cache = getattr(self, "_base_cache", None)
+        if not cache or cache[0] != today:
+            midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+            utc_str = midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                base = self.storage.equity_before(utc_str)
+            except Exception:
+                base = None
+            if base is None:
+                base = self.account.equity() - flows.get("flow_today", 0.0)
+            self._base_cache = (today, base)
+            cache = self._base_cache
+        return float(cache[1]) + float(flows.get("flow_today", 0.0))
 
     def _daily_stats(self) -> Dict:
         today = datetime.now().date().isoformat()
