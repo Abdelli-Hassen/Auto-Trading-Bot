@@ -129,13 +129,13 @@ function App() {
   );
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-clip bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans relative">
+    <div className="h-dvh w-full max-w-full overflow-hidden bg-[var(--color-surface-950)] text-[var(--color-surface-300)] flex flex-col font-sans relative">
       {/* Ambient Glow */}
       <div className="fixed top-0 left-[-10%] lg:left-[20%] w-[400px] lg:w-[600px] h-[400px] lg:h-[600px] bg-[var(--color-gold-600)]/5 rounded-full blur-[100px] lg:blur-[120px] pointer-events-none" />
       <div className="fixed bottom-0 right-[-10%] lg:right-[10%] w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-[var(--color-profit)]/5 rounded-full blur-[80px] lg:blur-[100px] pointer-events-none" />
 
       {/* Modern Top Navigation */}
-      <header className="relative z-20 h-auto lg:h-16 px-4 lg:px-6 py-4 lg:py-0 flex flex-col lg:flex-row justify-between items-center bg-[var(--color-surface-900)]/80 backdrop-blur-xl border-b border-[var(--color-surface-800)]/80 gap-4 lg:gap-0">
+      <header className="relative z-20 shrink-0 h-auto lg:h-16 px-4 lg:px-6 py-4 lg:py-0 flex flex-col lg:flex-row justify-between items-center bg-[var(--color-surface-900)]/80 backdrop-blur-xl border-b border-[var(--color-surface-800)]/80 gap-4 lg:gap-0">
         <div className="flex w-full lg:w-auto justify-between lg:justify-start items-center gap-8">
           {/* Logo */}
           <div className="flex items-center gap-3">
@@ -219,7 +219,7 @@ function App() {
       </header>
 
       {/* Mobile navigation (the desktop tabs are hidden below md) */}
-      <nav className="md:hidden relative z-20 flex gap-1 overflow-x-auto px-3 py-2 bg-[var(--color-surface-900)]/80 border-b border-[var(--color-surface-800)]/80">
+      <nav className="md:hidden relative z-20 shrink-0 flex gap-1 overflow-x-auto px-3 py-2 bg-[var(--color-surface-900)]/80 border-b border-[var(--color-surface-800)]/80">
         {['Trading', 'Analytics', 'Strategies', 'History', 'Account'].map(item => (
           <button key={item} onClick={() => setActiveTab(item)}
             className={`shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${activeTab === item ? 'bg-[var(--color-surface-800)] text-white' : 'text-[var(--color-surface-400)]'}`}>
@@ -243,7 +243,7 @@ function App() {
       )}
 
       {/* Main Dynamic Workspace */}
-      <main className="relative z-10 flex-1 w-full px-4 lg:px-6 pt-4 pb-24">
+      <main id="app-scroll" className="relative z-10 flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 lg:px-6 pt-4 pb-10">
         <div className="max-w-[1920px] mx-auto w-full min-w-0">
           {activeTab === 'Trading'    && renderTradingWorkspace()}
           {activeTab === 'Analytics'  && <Analytics />}
@@ -254,7 +254,7 @@ function App() {
       </main>
 
       {/* Bottom Status Bar */}
-      <footer className="relative z-10 px-4 lg:px-8 py-3 lg:py-2 border-t border-[var(--color-surface-800)]/60 bg-[var(--color-surface-900)]/80 flex flex-col sm:flex-row justify-between items-center text-[11px] text-[var(--color-surface-500)] tracking-wide gap-2 sm:gap-0 mt-auto">
+      <footer className="relative z-10 shrink-0 px-4 lg:px-8 py-3 lg:py-2 border-t border-[var(--color-surface-800)]/60 bg-[var(--color-surface-900)]/80 flex flex-col sm:flex-row justify-between items-center text-[11px] text-[var(--color-surface-500)] tracking-wide gap-2 sm:gap-0 mt-auto">
         <span className="font-mono text-center sm:text-left">NexTrade AI v2.0 · paper trading</span>
         <div className="flex flex-wrap justify-center sm:justify-end gap-4 lg:gap-6">
           <span>Data: <span className="text-[var(--color-profit)] font-mono">{isConnected ? (data?.status?.data_source === 'synthetic' ? 'simulated' : 'exchange') : '—'}</span></span>
