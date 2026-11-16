@@ -26,17 +26,17 @@ export default function SymbolStrip({ symbols, prices, positions, symbol, onSele
                 </span>
               )}
             </div>
-            <div className="mt-1 flex items-baseline justify-between gap-2">
-              <span className="text-[13px] font-mono font-semibold text-white tabular-nums">
-                {(p.last || 0).toLocaleString('en-US', { minimumFractionDigits: p.last < 10 ? 4 : 2, maximumFractionDigits: p.last < 10 ? 4 : 2 })}
-              </span>
-              <span className={`text-[10px] font-mono tabular-nums ${chg >= 0 ? 'text-[var(--color-profit)]' : 'text-[var(--color-loss)]'}`}>
-                {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
-              </span>
+            <div className="mt-1 text-[13px] font-mono font-semibold text-white tabular-nums">
+              {(p.last || 0).toLocaleString('en-US', { minimumFractionDigits: p.last < 10 ? 4 : 2, maximumFractionDigits: p.last < 10 ? 4 : 2 })}
+            </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] font-mono text-[var(--color-surface-500)]">
+              <span>24h price</span>
+              <span className="tabular-nums">{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
             </div>
             {pos && (
-              <div className={`mt-1 text-[10px] font-mono tabular-nums ${pnlClass(pos.unrealized_pnl)}`}>
-                {pos.unrealized_pnl >= 0 ? '+' : '-'}${Math.abs(pos.unrealized_pnl).toFixed(2)}
+              <div className={`mt-1.5 pt-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono tabular-nums ${pnlClass(pos.unrealized_pnl)}`}>
+                <span className="text-[var(--color-surface-500)]">your P&L</span>
+                <span className="font-bold">{pos.unrealized_pnl >= 0 ? '+' : '-'}${Math.abs(pos.unrealized_pnl).toFixed(2)}</span>
               </div>
             )}
           </button>
